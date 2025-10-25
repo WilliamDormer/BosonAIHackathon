@@ -21,6 +21,11 @@ llm:
     temperature: 0.2
     top_p: 0.95
 
+# MLLM Configuration
+mllm:
+  max_tokens: 2048
+  temperature: 0.2
+
 # ASR (Audio Understanding) Configuration
 asr:
   model: "higgs-audio-understanding-Hackathon"

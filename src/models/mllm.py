@@ -5,6 +5,8 @@ Multimodal Large Language Model support.
 import os
 import base64
 import openai
+import yaml
+from typing import Dict, Any
 
 class MLLM:
 
@@ -14,6 +16,19 @@ class MLLM:
         
         self.client = openai.Client(api_key=api_key, base_url="https://hackathon.boson.ai/v1")
         self.name = model_name
+        self.config = self._load_config()
+        self.max_tokens = self.config.get('mllm', {}).get('max_tokens', 2048)
+        self.temperature = self.config.get('mllm', {}).get('temperature', 0.2)
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from config.yaml."""
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f) or {}
+        except Exception as e:
+            print(f"[WARNING] Failed to load config: {e}. Using defaults.")
+            return {}
     
     def _encode_file_to_base64(self, file_path: str) -> str:
         """Encode a local file to base64 data URI."""
@@ -83,8 +98,8 @@ class MLLM:
         response = self.client.chat.completions.create(
             model=self.name,
             messages=assembled_payloads,
-            max_tokens=256,
-            temperature=0.2
+            max_tokens=self.max_tokens,
+            temperature=self.temperature
         )
         
         if verbose:

@@ -7,7 +7,7 @@ import json
 import time
 import yaml
 import openai
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 class LLM:
 
@@ -160,6 +160,74 @@ class LLM:
         # If all retries failed, raise the last error
         raise Exception(f"LLM call failed after {self.max_retries} attempts: {str(last_error)}")
     
+    def chat_completion(
+        self, 
+        assembled_payloads: List[Dict[str, Any]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        validate_json: bool = False,
+        verbose: bool = False
+        ) -> str:
+        """
+        Call the LLM with retry logic and optional JSON validation.
+        
+        Args:
+            assembled_payloads: List of messages that has already been assembled
+        """
+        
+        # Use config defaults if not specified
+        max_tokens = max_tokens if max_tokens is not None else self.default_max_tokens
+        temperature = temperature if temperature is not None else self.default_temperature
+        
+        # Retry loop
+        delay = self.initial_delay
+        last_error = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.name,
+                    messages=assembled_payloads,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=self.default_top_p
+                )
+                
+                content = response.choices[0].message.content
+                
+                # Validate JSON if required
+                if validate_json:
+                    if not self._validate_json_response(content):
+                        if verbose:
+                            print(f"[DEBUG] Attempt {attempt + 1}: Invalid JSON response, retrying...")
+                            print(f"[DEBUG] Full response: {content}")
+                        raise ValueError(f"Response is not valid JSON (length={len(content)})")
+                
+                if verbose:
+                    print(f"[DEBUG] Model: {self.name}")
+                    print(f"[DEBUG] Attempt: {attempt + 1}")
+                    print(f"[DEBUG] Response: {content}")
+                
+                return content
+                
+            except Exception as e:
+                last_error = e
+                
+                if attempt < self.max_retries - 1:
+                    if verbose:
+                        print(f"[DEBUG] Attempt {attempt + 1} failed: {str(e)}")
+                        print(f"[DEBUG] Retrying in {delay:.2f} seconds...")
+                    
+                    time.sleep(delay)
+                    delay = min(delay * self.backoff_multiplier, self.max_delay)
+                else:
+                    if verbose:
+                        print(f"[DEBUG] All {self.max_retries} attempts failed")
+        
+        # If all retries failed, raise the last error
+        raise Exception(f"LLM call failed after {self.max_retries} attempts: {str(last_error)}")
+    
+        
 
 if __name__ == "__main__":
     
