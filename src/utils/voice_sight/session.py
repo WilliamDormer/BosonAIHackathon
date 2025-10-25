@@ -2,6 +2,7 @@
 Voice Sight Session Management.
 """
 
+import json
 from typing import Optional, Dict, Any
 from datetime import datetime
 
@@ -71,3 +72,24 @@ class VoiceSightSession:
             "language_preferences": self.language_preferences,
             "translation_mode": self.translation_mode
         }
+    
+    def save_to_file(self, filepath: str) -> None:
+        """Save session to JSON file."""
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
+    
+    @classmethod
+    def load_from_file(cls, filepath: str) -> 'VoiceSightSession':
+        """Load session from JSON file."""
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        session = cls()
+        session.session_id = data.get("session_id", session.session_id)
+        session.state = data.get("state", "initialized")
+        session.conversation_history = data.get("conversation_history", [])
+        session.current_context = data.get("current_context", {})
+        session.language_preferences = data.get("language_preferences", {})
+        session.translation_mode = data.get("translation_mode", False)
+        
+        return session

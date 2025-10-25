@@ -199,7 +199,7 @@ if __name__ == "__main__":
     
     api_key = "bai-CeNIcRcYQqe50mhRO9vlnJvdImMRXfBQIkeMKovGGR9fa4Ke"
     
-    audio_model = AudioUnderstanding(api_key_override=api_key)
+    audio_model = ASR(api_key_override=api_key)
     
     # Example 1: Transcription
     print("=== Example 1: Audio Transcription ===")

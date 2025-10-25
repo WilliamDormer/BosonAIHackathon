@@ -19,9 +19,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
     
-from utils.voice_sight.agent import VoiceSightAgent  # type: ignore
-from utils.voice_sight.session import VoiceSightSession  # type: ignore
-from utils.logger import RunLogger, create_logger  # type: ignore
+from utils.voice_sight.agent import VoiceSightAgent  # type: ignore  # noqa: E402
+from utils.voice_sight.session import VoiceSightSession  # type: ignore  # noqa: E402
+from utils.logger import RunLogger, create_logger  # type: ignore  # noqa: E402
 
 
 class VoiceSightApp:
@@ -38,9 +38,14 @@ class VoiceSightApp:
         # Current logger and session
         self.current_logger: Optional[RunLogger] = None
         self.current_session: Optional[VoiceSightSession] = None
+        self.current_prompt_system: Optional[str] = None
         
         # Initialize agent (will be created with logger in start_session)
         self.agent: Optional[VoiceSightAgent] = None
+        
+        # Session viewer state
+        self.loaded_session_data: Optional[dict] = None
+        self.current_interaction_index: int = 0
         
         # Get available prompt systems
         self.available_prompts = self._get_available_prompts()
@@ -65,158 +70,244 @@ class VoiceSightApp:
             gr.Markdown("# 🎙️ Voice Sight - Audio Agentic Pipeline")
             gr.Markdown("An intelligent audio interface that understands and responds through speech.")
             
-            with gr.Row():
-                with gr.Column(scale=1):
-                    gr.Markdown("### 🎤 Audio Input")
-                    
-                    # Prompt system selection
-                    prompt_dropdown = gr.Dropdown(
-                        choices=self.available_prompts,
-                        value=self.available_prompts[0][1] if self.available_prompts else "voice_sight.yaml",
-                        label="Prompt System",
-                        info="Select the AI personality and capabilities"
+            with gr.Tab("Interactive Agent"):
+                gr.Markdown("### 🎤 Audio Input")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        
+                        # Prompt system selection
+                        prompt_dropdown = gr.Dropdown(
+                            choices=self.available_prompts,
+                            value=self.available_prompts[0][1] if self.available_prompts else "voice_sight.yaml",
+                            label="Prompt System",
+                            info="Select the AI personality and capabilities"
+                        )
+                        
+                        # Audio input
+                        audio_input = gr.Audio(
+                            label="Record Your Message",
+                            type="filepath",
+                            sources=["microphone"],
+                            format="wav",
+                            container=True
+                        )
+                        
+                        # Image input for visual analysis
+                        image_input = gr.Image(
+                            label="Upload Image for Visual Analysis",
+                            type="filepath",
+                            sources=["upload", "webcam"],
+                            height=380,
+                        )
+                        
+                        # Process button (first click will auto-start session)
+                        with gr.Row():
+                            answer_btn = gr.Button("🎯 Answer", variant="primary")
+                            reset_btn = gr.Button("🔄 Reset", variant="secondary")
+                        
+                    with gr.Column(scale=1):
+                        gr.Markdown("### 🔊 Audio Response")
+                        gr.Markdown("*Play the agent's audio response*")
+                        
+                        # Audio output
+                        audio_output = gr.Audio(
+                            label="Agent Audio Response",
+                            type="filepath",
+                            interactive=False
+                        )
+                            
+                        gr.Markdown("### 🔧 Execution Log")
+                        execution_log = gr.Textbox(
+                            label="System Log",
+                            interactive=False,
+                            lines=6,
+                            value="System ready."
+                        )
+                        
+            with gr.Tab("Runs & Sessions"):
+                gr.Markdown("### 📂 Manage Sessions")
+                gr.Markdown("Load and view previous sessions from the runs directory.")
+            
+                # Sessions loader bar
+                with gr.Row():
+                    session_dropdown = gr.Dropdown(
+                        choices=self._list_sessions(),
+                        value=None,
+                        label="Select a session to view",
+                        info="Sessions are saved under the runs/ directory"
                     )
-                    
-                    # Audio input
-                    audio_input = gr.Audio(
-                        label="Record Your Message",
-                        type="filepath",
-                        sources=["microphone"],
-                        format="wav"
-                    )
-                    
-                    # Image input for visual analysis
-                    image_input = gr.Image(
-                        label="Upload Image for Visual Analysis",
-                        type="filepath",
-                        sources=["upload", "webcam"]
-                    )
-                    
-                    # Process button
-                    with gr.Row():
-                        answer_btn = gr.Button("🎯 Answer", variant="primary")
-                    
-                    # Session controls
-                    with gr.Row():
-                        start_btn = gr.Button("🚀 Start Session", variant="secondary")
-                        reset_btn = gr.Button("🔄 Reset Session", variant="secondary")
+                    with gr.Column():
+                        refresh_sessions_btn = gr.Button("🔄 Refresh", variant="primary")
+                        load_session_btn = gr.Button("📂 Load Session", variant="primary")
                 
-                with gr.Column(scale=1):
-                    gr.Markdown("### 🔊 Audio Response")
-                    gr.Markdown("*Play the agent's audio response*")
+                # Session viewer - step-wise interaction display
+                gr.Markdown("---")
+                gr.Markdown("### 🎭 Session Replay")
+                
+                with gr.Row():
+                    interaction_counter = gr.Markdown("No session loaded", elem_id="interaction_counter")
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("#### 🗣️ User Input")
+                        user_transcript_display = gr.Textbox(
+                            label="Audio Transcript",
+                            interactive=False,
+                            lines=3,
+                            placeholder="User's spoken input will appear here"
+                        )
+                        user_image_display = gr.Image(
+                            label="User Image (if any)",
+                            interactive=False,
+                            height=200
+                        )
                     
-                    # Audio output
-                    audio_output = gr.Audio(
-                        label="Agent Audio Response",
-                        type="filepath",
-                        interactive=False
-                    )
-                    
-                    # Status display
-                    status_display = gr.Textbox(
-                        label="Status",
-                        interactive=False,
-                        lines=3,
-                        value="Ready to start. Click 'Start Session' to begin."
-                    )
-            
-            # Removed conversation history - just show execution log
-            
-            # Execution log
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### 🔧 Execution Log")
-                    execution_log = gr.Textbox(
-                        label="System Log",
-                        interactive=False,
-                        lines=6,
-                        value="System ready."
-                    )
-            
+                    with gr.Column(scale=1):
+                        gr.Markdown("#### 🤖 Model Response")
+                        model_response_display = gr.Textbox(
+                            label="Response Text",
+                            interactive=False,
+                            lines=3,
+                            placeholder="Model's response will appear here"
+                        )
+                        model_audio_display = gr.Audio(
+                            label="Generated Audio Response",
+                            interactive=False,
+                            type="filepath"
+                        )
+                
+                with gr.Row():
+                    prev_btn = gr.Button("⬅️ Previous", size="sm")
+                    next_btn = gr.Button("➡️ Next", size="sm")
+
             # Store components for event handlers
             self.components = {
                 'audio_input': audio_input,
                 'image_input': image_input,
                 'audio_output': audio_output,
-                'status_display': status_display,
+                # 'status_display': status_display,
                 'execution_log': execution_log,
-                'prompt_dropdown': prompt_dropdown
+                'prompt_dropdown': prompt_dropdown,
+                'session_dropdown': session_dropdown,
+                'interaction_counter': interaction_counter,
+                'user_transcript_display': user_transcript_display,
+                'user_image_display': user_image_display,
+                'model_response_display': model_response_display,
+                'model_audio_display': model_audio_display
             }
             
-            # Event handlers
-            start_btn.click(
-                fn=self.start_session,
-                inputs=[prompt_dropdown],
-                outputs=[status_display, execution_log]
-            )
-            
+            # Event handlers - Interactive Agent tab
             reset_btn.click(
                 fn=self.reset_session,
                 inputs=[],
-                outputs=[audio_output, status_display, execution_log]
+                outputs=[audio_input, image_input, audio_output, execution_log]
             )
             
             answer_btn.click(
                 fn=self.process_input,
                 inputs=[audio_input, image_input, prompt_dropdown],
-                outputs=[audio_output, status_display, execution_log]
+                outputs=[audio_output, execution_log]
+            )
+
+            # Prompt system change should reset state and clear UI
+            prompt_dropdown.change(
+                fn=self.on_prompt_change,
+                inputs=[prompt_dropdown],
+                outputs=[audio_input, image_input, audio_output, execution_log]
+            )
+
+            # Sessions tab event handlers
+            refresh_sessions_btn.click(
+                fn=self.refresh_sessions,
+                inputs=[],
+                outputs=[session_dropdown]
+            )
+            
+            load_session_btn.click(
+                fn=self.load_session_and_display,
+                inputs=[session_dropdown],
+                outputs=[
+                    interaction_counter,
+                    user_transcript_display,
+                    user_image_display,
+                    model_response_display,
+                    model_audio_display
+                ]
+            )
+            
+            prev_btn.click(
+                fn=self.navigate_previous,
+                inputs=[],
+                outputs=[
+                    interaction_counter,
+                    user_transcript_display,
+                    user_image_display,
+                    model_response_display,
+                    model_audio_display
+                ]
+            )
+            
+            next_btn.click(
+                fn=self.navigate_next,
+                inputs=[],
+                outputs=[
+                    interaction_counter,
+                    user_transcript_display,
+                    user_image_display,
+                    model_response_display,
+                    model_audio_display
+                ]
             )
         
         return demo
     
-    def start_session(self, prompt_system: str):
-        """Start a new Voice Sight session with selected prompt system."""
-        try:
-            # Create new logger
-            run_name = f"voice_sight_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}"
-            self.current_logger = create_logger(run_name=run_name, base_dir=self.runs_dir)
-            
-            # Create new session
-            self.current_session = VoiceSightSession()
-            
-            # Create agent with logger and selected prompt system
-            self.agent = VoiceSightAgent(
-                api_key=self.api_key, 
-                use_thinking=True, 
-                logger=self.current_logger,
-                prompt_system=prompt_system
-            )
-            
-            # Clear agent's conversation context for new session
-            self.agent.clear_conversation_context()
-            
-            # Log session start
-            self.current_logger.log_step("session_start", {
-                "session_id": self.current_session.session_id,
-                "timestamp": datetime.now().isoformat()
-            })
-            
-            # Start conversation with greeting
+    def _init_session(self, prompt_system: str, with_greeting: bool = False):
+        """Initialize a new session and agent, optionally generating a greeting."""
+        # Finalize old logger if any
+        if self.current_logger:
+            try:
+                self.current_logger.finalize()
+            except Exception:
+                pass
+        # Create new logger and session
+        run_name = f"voice_sight_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}"
+        self.current_logger = create_logger(run_name=run_name, base_dir=self.runs_dir)
+        self.current_session = VoiceSightSession()
+        # Create agent with logger and selected prompt system
+        self.agent = VoiceSightAgent(
+            api_key=self.api_key,
+            use_thinking=True,
+            logger=self.current_logger,
+            prompt_system=prompt_system
+        )
+        self.agent.clear_conversation_context()
+        # Track current prompt system
+        self.current_prompt_system = prompt_system
+        # Log session start
+        self.current_logger.log_step("session_start", {
+            "session_id": self.current_session.session_id,
+            "timestamp": datetime.now().isoformat(),
+            "prompt_system": prompt_system
+        })
+        # Optional greeting
+        if with_greeting:
             greeting_result = self.agent.start_conversation()
-            
-            if greeting_result["success"]:
-                # Add greeting to session
+            if greeting_result.get("success"):
                 self.current_session.add_message(
                     role="assistant",
-                    content=greeting_result["text"],
-                    metadata={"audio_path": greeting_result["audio_path"]}
+                    content=greeting_result.get("text", ""),
+                    metadata={"audio_path": greeting_result.get("audio_path")}
                 )
-                
-                status = "✅ Session started! Agent is ready to help."
-                # Removed chatbot history
-                log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session started (ID: {self.current_session.session_id})\n"
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Greeting generated\n"
-                
-                return status, log_entry
-            else:
-                error_msg = f"❌ Failed to start session: {greeting_result.get('error', 'Unknown error')}"
-                log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {greeting_result.get('error', 'Unknown error')}\n"
-                return error_msg, log_entry
-                
-        except Exception as e:
-            error_msg = f"❌ Error starting session: {str(e)}"
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return error_msg, log_entry
+        return True
+    
+    def _save_current_session(self):
+        """Save current session to disk."""
+        if self.current_session and self.current_logger:
+            try:
+                session_file = os.path.join(self.current_logger.get_run_dir(), "session.json")
+                self.current_session.save_to_file(session_file)
+            except Exception as e:
+                print(f"[App] Warning: Failed to save session: {e}")
     
     def reset_session(self):
         """Reset the current session."""
@@ -232,11 +323,14 @@ class VoiceSightApp:
                 self.current_session.reset()
             
             self.current_session = None
+            self.agent = None
+            # Force re-init on next Answer click even if prompt unchanged
+            self.current_prompt_system = None
             
-            status = "🔄 Session reset. Click 'Start Session' to begin a new conversation."
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session reset\n"
+            status = "Ready. Click 'Answer' to start a session."
+            log_entry = ""
             
-            return None, status, log_entry
+            return None, None, None, status, log_entry
             
         except Exception as e:
             error_msg = f"❌ Error resetting session: {str(e)}"
@@ -248,17 +342,12 @@ class VoiceSightApp:
         if not audio_input and not image_input:
             return None, "❌ Please provide audio or image input.", "No input provided."
         
-        if not self.current_session:
-            return None, "❌ Please start a session first.", "No active session."
-        
-        # Check if prompt system has changed and restart session if needed
-        if hasattr(self, 'current_prompt_system') and self.current_prompt_system != prompt_system:
-            # Restart session with new prompt system
-            self.start_session(prompt_system)
-            return None, "🔄 Prompt system changed. Please restart session.", [], "Prompt system changed."
-        
-        # Store current prompt system
-        self.current_prompt_system: str = prompt_system
+        # Auto-start or re-init session if needed
+        if (not hasattr(self, 'current_prompt_system')) or (self.current_session is None) or (self.current_prompt_system != prompt_system):
+            try:
+                self._init_session(prompt_system, with_greeting=False)
+            except Exception as e:
+                return None, f"❌ Failed to start session: {str(e)}", f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
         
         try:
             # Determine input type and process accordingly
@@ -276,6 +365,213 @@ class VoiceSightApp:
             error_msg = f"❌ Error processing input: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
             return None, error_msg, log_entry
+
+    def on_prompt_change(self, prompt_system: str):
+        """Handle prompt system changes by resetting app state and clearing UI."""
+        # Reset state
+        try:
+            # Finalize logger if present
+            if self.current_logger:
+                try:
+                    self.current_logger.log_step("prompt_change", {"new_prompt": prompt_system})
+                except Exception:
+                    pass
+                self.current_logger.finalize()
+        except Exception:
+            pass
+        self.current_logger = None
+        self.current_session = None
+        self.agent = None
+        # Force re-init on next Answer
+        self.current_prompt_system = None
+        status = "Ready. Click 'Answer' to start a session."
+        log_entry = ""
+        # Clear all I/O
+        return None, None, None, log_entry
+
+    def _list_sessions(self) -> list:
+        """List available session directories in runs dir."""
+        try:
+            dirs = [d for d in os.listdir(self.runs_dir) if os.path.isdir(os.path.join(self.runs_dir, d))]
+            # Sort by modification time, newest first
+            dirs.sort(key=lambda d: os.path.getmtime(os.path.join(self.runs_dir, d)), reverse=True)
+            return dirs
+        except Exception:
+            return []
+
+    def refresh_sessions(self):
+        """Refresh the sessions dropdown choices."""
+        choices = self._list_sessions()
+        return gr.Dropdown(choices=choices, value=None)
+
+    def load_session_and_display(self, session_name: Optional[str]):
+        """Load a session and display the first interaction."""
+        if not session_name:
+            return (
+                "❌ Please select a session to load.",
+                "",
+                None,
+                "",
+                None
+            )
+        
+        session_dir = os.path.join(self.runs_dir, session_name)
+        if not os.path.isdir(session_dir):
+            return (
+                f"❌ Session '{session_name}' not found.",
+                "",
+                None,
+                "",
+                None
+            )
+        
+        # Try to load session data from session.json
+        session_file = os.path.join(session_dir, "session.json")
+        if os.path.exists(session_file):
+            try:
+                import json
+                with open(session_file, 'r', encoding='utf-8') as f:
+                    self.loaded_session_data = json.load(f)
+            except Exception as e:
+                return (
+                    f"❌ Failed to load session: {str(e)}",
+                    "",
+                    None,
+                    "",
+                    None
+                )
+        else:
+            return (
+                f"❌ Session file not found in {session_dir}",
+                "",
+                None,
+                "",
+                None
+            )
+        
+        # Parse conversation into user-model interaction pairs
+        conversation_history = self.loaded_session_data.get("conversation_history", []) if self.loaded_session_data else []
+        self.interaction_pairs = self._parse_interactions(conversation_history)
+        
+        if not self.interaction_pairs:
+            return (
+                "📂 Session loaded but no interactions found.",
+                "",
+                None,
+                "",
+                None
+            )
+        
+        # Start at first interaction
+        self.current_interaction_index = 0
+        return self._display_interaction(0)
+    
+    def _parse_interactions(self, conversation_history: list) -> list:
+        """Parse conversation history into user-model interaction pairs."""
+        interactions: list = []
+        current_pair = {"user": None, "assistant": None}
+        
+        for message in conversation_history:
+            role = message.get("role", "")
+            if role == "user":
+                # Start new pair if we already have a complete one
+                if current_pair["user"] is not None and current_pair["assistant"] is not None:
+                    interactions.append(current_pair)
+                    current_pair = {"user": None, "assistant": None}
+                current_pair["user"] = message
+            elif role == "assistant":
+                current_pair["assistant"] = message
+                # Complete the pair
+                if current_pair["user"] is not None:
+                    interactions.append(current_pair)
+                    current_pair = {"user": None, "assistant": None}
+        
+        # Add final incomplete pair if exists
+        if current_pair["user"] is not None or current_pair["assistant"] is not None:
+            interactions.append(current_pair)
+        
+        return interactions
+    
+    def _display_interaction(self, index: int):
+        """Display a specific interaction by index."""
+        if not self.interaction_pairs or index < 0 or index >= len(self.interaction_pairs):
+            return (
+                "No interaction to display",
+                "",
+                None,
+                "",
+                None
+            )
+        
+        pair = self.interaction_pairs[index]
+        total = len(self.interaction_pairs)
+        
+        # Counter
+        counter = f"### Interaction {index + 1} / {total}"
+        
+        # User data
+        user_msg = pair.get("user")
+        user_transcript = user_msg.get("content", "") if user_msg else ""
+        user_metadata = user_msg.get("metadata", {}) if user_msg else {}
+        user_image_path = user_metadata.get("image_path")
+        
+        # Model data
+        assistant_msg = pair.get("assistant")
+        model_response = assistant_msg.get("content", "") if assistant_msg else ""
+        assistant_metadata = assistant_msg.get("metadata", {}) if assistant_msg else {}
+        model_audio_path = assistant_metadata.get("audio_path")
+        
+        return (
+            counter,
+            user_transcript,
+            user_image_path,
+            model_response,
+            model_audio_path
+        )
+    
+    def navigate_previous(self):
+        """Navigate to previous interaction."""
+        if not self.interaction_pairs:
+            return (
+                "No session loaded",
+                "",
+                None,
+                "",
+                None
+            )
+        
+        self.current_interaction_index = max(0, self.current_interaction_index - 1)
+        return self._display_interaction(self.current_interaction_index)
+    
+    def navigate_next(self):
+        """Navigate to next interaction."""
+        if not self.interaction_pairs:
+            return (
+                "No session loaded",
+                "",
+                None,
+                "",
+                None
+            )
+        
+        self.current_interaction_index = min(
+            len(self.interaction_pairs) - 1,
+            self.current_interaction_index + 1
+        )
+        return self._display_interaction(self.current_interaction_index)
+
+    def load_session(self, session_name: Optional[str]):
+        """Load a session by name; sets state to use its folder for artifacts/log viewing."""
+        if not session_name:
+            return "❌ Please select a session to load.", "No session selected."
+        session_dir = os.path.join(self.runs_dir, session_name)
+        if not os.path.isdir(session_dir):
+            return f"❌ Session '{session_name}' not found.", f"[{datetime.now().strftime('%H:%M:%S')}] Invalid session selected\n"
+        # Note: We don't fully restore conversation; we mark current run dir for reference
+        self.loaded_session_dir = session_dir  # type: ignore[attr-defined]
+        status = f"📂 Loaded session: {session_name}"
+        log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session loaded from {session_dir}\n"
+        return status, log_entry
     
     def _process_audio_only(self, audio_input: str):
         """Process audio input only."""
@@ -312,11 +608,6 @@ class VoiceSightApp:
                         metadata=metadata
                     )
             
-            # Removed chatbot history
-            
-            # Update status
-            status = "✅ Audio processed successfully!"
-            
             # Update execution log with actual console outputs
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Audio processed successfully\n"
             if transcription:
@@ -336,11 +627,14 @@ class VoiceSightApp:
             else:
                 log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ❌ No audio generated\n"
             
-            return result.get("audio_path"), status, log_entry
+            # Save session to disk
+            self._save_current_session()
+            
+            return result.get("audio_path"), log_entry
         else:
             error_msg = f"❌ Processing failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, log_entry
+            return None, error_msg
     
     def _process_image_only(self, image_input: str):
         """Process image input only."""
@@ -376,11 +670,6 @@ class VoiceSightApp:
                         metadata=metadata
                     )
             
-            # Removed chatbot history
-            
-            # Update status
-            status = "✅ Image analyzed successfully!"
-            
             # Update execution log with actual console outputs
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Image processed successfully\n"
             response_text = result.get("response_text", "")
@@ -395,11 +684,14 @@ class VoiceSightApp:
             else:
                 log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ❌ No audio generated\n"
             
-            return result.get("audio_path"), status, log_entry
+            # Save session to disk
+            self._save_current_session()
+            
+            return result.get("audio_path"), log_entry
         else:
             error_msg = f"❌ Image analysis failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, log_entry
+            return None, error_msg
     
     def _process_audio_and_image(self, audio_input: str, image_input: str):
         """Process both audio and image inputs."""
@@ -443,11 +735,6 @@ class VoiceSightApp:
                         metadata=metadata
                     )
             
-            # Removed chatbot history
-            
-            # Update status
-            status = "✅ Audio and image processed successfully!"
-            
             # Update execution log with actual console outputs
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Multimodal processing\n"
             if transcription:
@@ -463,11 +750,14 @@ class VoiceSightApp:
             
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio generated: {result.get('audio_path', 'None')}\n"
             
-            return result.get("audio_path"), status, log_entry
+            # Save session to disk
+            self._save_current_session()
+            
+            return result.get("audio_path"), log_entry
         else:
             error_msg = f"❌ Multimodal processing failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, log_entry
+            return None, error_msg
     
     
     

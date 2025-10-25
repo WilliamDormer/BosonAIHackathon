@@ -121,7 +121,7 @@ if __name__ == "__main__":
     response = mllm.call(
         system_prompt="You are a helpful assistant.",
         user_prompt="What do you see in this image?",
-        image="./tests/test_mllm_input/cars.jpg",
+        image="./tests/test_mllm_input/cat.jpg",
         verbose=True
     )
     print(f"Response 1: {response}")

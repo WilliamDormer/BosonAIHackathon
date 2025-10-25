@@ -3,6 +3,7 @@ Voice Sight Agent - Main LLM agent with tool calling capabilities for visually-i
 """
 
 import os
+import time
 import json
 import tempfile
 import yaml  # type: ignore
@@ -13,6 +14,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from models.llm import LLM  # type: ignore
 from models.asr import ASR  # type: ignore
+# from models.asr_qwen_omni import ASR
 from models.tts import TTS  # type: ignore
 from models.mllm import MLLM  # type: ignore
 
@@ -178,13 +180,13 @@ class VoiceSightAgent:
                 # Step 1: Transcribe the audio
                 if audio_path:
                     if self.logger:
-                        self.logger.log_result("🎤 ASR", {
+                        self.logger.log_result("🎤 ASR: starting transcrption", {
                             "action": "audio_transcription_start",
                             "content": "Starting audio transcription"
                         })
                     transcription = self._transcribe_audio(audio_path)
                     if self.logger:
-                        self.logger.log_result("🎤 ASR", {
+                        self.logger.log_result("🎤 ASR: transcription complete", {
                             "action": "audio_transcription_complete",
                             "content": f"Transcription: '{transcription}'"
                         })
@@ -241,7 +243,18 @@ class VoiceSightAgent:
             except (json.JSONDecodeError, KeyError):
                 # Fallback to raw result if JSON parsing fails
                 print(f"[ASR] Error parsing JSON response: {result}, treating it as a string")
-                transcription = result
+                
+                # try to retrieve "{""response": "transcription text"}" pattern
+                try: 
+                    import re
+                    response_match = re.search(r'{"response"\s*:\s*"(.*?)"}', result)
+                    print(f"[ASR] Fallback regex match result: {response_match}")
+                    if response_match:
+                        transcription = response_match.group(1)
+
+                except Exception as e:
+                    print(f"[ASR] Further error parsing response using back-up mode: {e}")
+                    transcription = result
             
             # Log user input
             if self.logger:
@@ -364,7 +377,7 @@ class VoiceSightAgent:
                 if formatted_tool_calls and len(formatted_tool_calls) > 0:
                     # Success - we have tool calls
                     if self.logger:
-                        self.logger.log_result("🤖 agent", {
+                        self.logger.log_result("🤖 Agent: Generated Toolcalls", {
                             "action": "llm_success",
                             "content": f"LLM generated {len(formatted_tool_calls)} tool calls on attempt {attempt + 1}",
                             "temperature": temperature
@@ -373,7 +386,7 @@ class VoiceSightAgent:
                 elif attempt < max_retries - 1:
                     # No tool calls, but we can retry
                     if self.logger:
-                        self.logger.log_result("🤖 agent", {
+                        self.logger.log_result("🤖 Agent: No Tool calls!", {
                             "action": "llm_no_tool_calls",
                             "content": f"No tool calls generated, retrying with temperature {temperature}",
                             "attempt": attempt + 1
@@ -382,7 +395,7 @@ class VoiceSightAgent:
                 else:
                     # Final attempt failed
                     if self.logger:
-                        self.logger.log_result("🤖 agent", {
+                        self.logger.log_result("🤖 Agent: No tool calls after maximum retries", {
                             "action": "llm_no_tool_calls_final",
                             "content": f"No tool calls generated after {max_retries} attempts",
                             "temperature": temperature
@@ -474,7 +487,7 @@ class VoiceSightAgent:
             # If tools ran and produced new context (e.g., visual analysis), ask LLM again
             if new_tool_activity:
                 if self.logger:
-                    self.logger.log_result("🤖 agent", {
+                    self.logger.log_result("🤖 Agent: Follow-up LLM Call ", {
                         "action": "follow_up_llm_call",
                         "content": "Continuing with LLM after tool execution",
                         "iteration": iteration
@@ -517,6 +530,18 @@ class VoiceSightAgent:
                 voice=voice,
                 output_path=output_path
             )
+            # If a logger is present, persist audio artifact in the run directory
+            if hasattr(self, 'logger') and self.logger:
+                try:
+                    with open(output_path, 'rb') as f:
+                        audio_bytes = f.read()
+                    saved_rel = f"audio_{int(time.time()*1000)}.wav"
+                    saved_path = self.logger.save_file(saved_rel, audio_bytes, mode='binary')
+                    # Prefer returning the saved artifact path
+                    output_path = saved_path
+                except Exception as e:
+                    if self.logger:
+                        self.logger.log_warning("audio_artifact_save_failed", str(e))
             
             # Log audio generation
             if self.logger:
@@ -580,6 +605,12 @@ class VoiceSightAgent:
                     "image_path": self.current_image_path
                 }
                 self.logger.log_result(logger_text, logger_payload)
+                # Persist analysis artifact as text file in run directory
+                try:
+                    saved_rel = f"visual_analysis_{int(time.time()*1000)}.txt"
+                    self.logger.save_file(saved_rel, analysis, mode='text')
+                except Exception as e:
+                    self.logger.log_warning("visual_analysis_artifact_save_failed", str(e))
                 
             return {
                 "success": True,
