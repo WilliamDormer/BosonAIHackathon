@@ -1,14 +1,10 @@
 """
-Audio-based Agentic Pipeline with Gradio Interface.
-
-Supports multiple functionalities:
-1. Translation - Two-way audio translation between Chinese and English
-2. [Future] Additional features to be added
+Voice Sight - Audio-based Agentic Pipeline with Gradio Interface.
 """
 
 import os
 import sys
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 try:
@@ -21,436 +17,509 @@ except ImportError:
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
+    
+# sys.path.append("/Users/tomlu/Documents/GitHub/BosonAIHackathon/src/utils")
 
-from utils.voice_sight.translation import TranslationPipeline, TranslationSession  # type: ignore
+from utils.voice_sight.agent import VoiceSightAgent  # type: ignore
+from utils.voice_sight.session import VoiceSightSession  # type: ignore
 from utils.logger import RunLogger, create_logger  # type: ignore
 
 
-class AudioAgenticApp:
-    """Main application class for audio-based agentic pipeline."""
+class VoiceSightApp:
+    """Main application class for Voice Sight audio agentic pipeline."""
     
     def __init__(self, api_key: Optional[str] = None, runs_dir: str = "runs"):
-        """Initialize the application with necessary models."""
+        """Initialize the application."""
         self.api_key = api_key or os.getenv("BOSON_API_KEY")
         self.runs_dir = runs_dir
         
         # Ensure runs directory exists
         os.makedirs(runs_dir, exist_ok=True)
         
-        # Current logger (will be created per session)
+        # Current logger and session
         self.current_logger: Optional[RunLogger] = None
+        self.current_session: Optional[VoiceSightSession] = None
         
-        # Initialize translation pipeline (without logger for now)
-        self.translation_pipeline = TranslationPipeline(api_key=self.api_key)
-        self.translation_session = TranslationSession(self.translation_pipeline)
+        # Initialize agent (will be created with logger in start_session)
+        self.agent = None
     
     def build_interface(self):
-        """Build the Gradio interface with multiple tabs."""
+        """Build the Gradio interface."""
         
-        with gr.Blocks(title="Audio Agentic Pipeline", theme=gr.themes.Soft()) as demo:
-            gr.Markdown("# 🎙️ Audio-Based Agentic Pipeline")
-            gr.Markdown("An intelligent audio interface supporting translation and more.")
+        with gr.Blocks(title="Voice Sight - Audio Agentic Pipeline", theme=gr.themes.Soft()) as demo:
+            gr.Markdown("# 🎙️ Voice Sight - Audio Agentic Pipeline")
+            gr.Markdown("An intelligent audio interface that understands and responds through speech.")
             
-            with gr.Tabs():
-                # Tab 1: Translation
-                with gr.TabItem("🌐 Translation"):
-                    self._build_translation_tab()
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("### 🎤 Audio Input")
+                    
+                    # Audio input
+                    audio_input = gr.Audio(
+                        label="Record Your Message",
+                        type="filepath",
+                        sources=["microphone"],
+                        format="wav"
+                    )
+                    
+                    # Image input for visual analysis
+                    image_input = gr.Image(
+                        label="Upload Image for Visual Analysis",
+                        type="filepath",
+                        sources=["upload", "webcam"]
+                    )
+                    
+                    # Process button
+                    with gr.Row():
+                        answer_btn = gr.Button("🎯 Answer", variant="primary")
+                    
+                    # Session controls
+                    with gr.Row():
+                        start_btn = gr.Button("🚀 Start Session", variant="secondary")
+                        reset_btn = gr.Button("🔄 Reset Session", variant="secondary")
                 
-                # Tab 2: Placeholder for future functionality
-                with gr.TabItem("🔮 Feature 2 (Coming Soon)"):
-                    gr.Markdown("### Feature 2")
-                    gr.Markdown("This feature will be implemented soon.")
-                
-                # Tab 3: Placeholder for future functionality
-                with gr.TabItem("🚀 Feature 3 (Coming Soon)"):
-                    gr.Markdown("### Feature 3")
-                    gr.Markdown("This feature will be implemented soon.")
+                with gr.Column(scale=1):
+                    gr.Markdown("### 🔊 Audio Output")
+                    
+                    # Audio output
+                    audio_output = gr.Audio(
+                        label="Agent Response",
+                        type="filepath",
+                        interactive=False
+                    )
+                    
+                    # Status display
+                    status_display = gr.Textbox(
+                        label="Status",
+                        interactive=False,
+                        lines=3,
+                        value="Ready to start. Click 'Start Session' to begin."
+                    )
+            
+            # Conversation log
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### 📋 Conversation Log")
+                    conversation_log = gr.Textbox(
+                        label="Conversation History",
+                        interactive=False,
+                        lines=8,
+                        value="No conversation yet."
+                    )
+            
+            # Execution log
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### 🔧 Execution Log")
+                    execution_log = gr.Textbox(
+                        label="System Log",
+                        interactive=False,
+                        lines=6,
+                        value="System ready."
+                    )
+            
+            # Store components for event handlers
+            self.components = {
+                'audio_input': audio_input,
+                'image_input': image_input,
+                'audio_output': audio_output,
+                'status_display': status_display,
+                'conversation_log': conversation_log,
+                'execution_log': execution_log
+            }
+            
+            # Event handlers
+            start_btn.click(
+                fn=self.start_session,
+                inputs=[],
+                outputs=[status_display, conversation_log, execution_log]
+            )
+            
+            reset_btn.click(
+                fn=self.reset_session,
+                inputs=[],
+                outputs=[audio_output, status_display, conversation_log, execution_log]
+            )
+            
+            answer_btn.click(
+                fn=self.process_input,
+                inputs=[audio_input, image_input],
+                outputs=[audio_output, status_display, conversation_log, execution_log]
+            )
         
         return demo
     
-    def _build_translation_tab(self):
-        """Build the translation tab interface."""
-        
-        gr.Markdown("## Two-Way Audio Translation")
-        gr.Markdown("Translate speech between Chinese and English in real-time.")
-        
-        # Walkthrough component for step-by-step workflow
-        with gr.Walkthrough(selected=0) as walkthrough:
-            with gr.Step("📝 Instructions", id=0):
-                instructions = gr.Markdown("""
-                **Step-by-Step Translation Process:**
-                1. Click **Start Session** to begin
-                2. **Step 1**: Specify your language preferences (e.g., "Chinese to English")
-                3. **Step 2**: Confirm your language choice by saying "confirm"
-                4. **Step 3**: Speak in your source language to get translation
-                5. The system will automatically progress through each step
-                """)
-                start_btn = gr.Button("🎬 Start Translation Session", variant="primary", size="lg")
-            
-            # Step 1: Language Selection
-            with gr.Step("🎤 Step 1: Specify Languages", id=1):
-                with gr.Column():
-                    greeting_audio = gr.Audio(
-                        label="Agent Greeting",
-                        type="filepath",
-                        interactive=False
-                    )
-                    
-                    language_input = gr.Audio(
-                        label="Your Response (Specify Languages)",
-                        type="filepath",
-                        sources=["microphone"]
-                    )
-                    
-                    submit_languages_btn = gr.Button("Submit Language Choice", variant="primary")
-            
-            # Step 2: Confirmation
-            with gr.Step("✅ Step 2: Confirm", id=2):
-                with gr.Column():
-                    confirmation_audio = gr.Audio(
-                        label="Confirmation Prompt",
-                        type="filepath",
-                        interactive=False
-                    )
-                    
-                    confirmation_input = gr.Audio(
-                        label="Say 'Confirm'",
-                        type="filepath",
-                        sources=["microphone"]
-                    )
-                    
-                    submit_confirmation_btn = gr.Button("Submit Confirmation", variant="primary")
-            
-            # Step 3: Translation
-            with gr.Step("🔊 Step 3: Translate", id=3):
-                with gr.Column():
-                    translation_input = gr.Audio(
-                        label="Speak in Source Language",
-                        type="filepath",
-                        sources=["microphone"]
-                    )
-                    
-                    translate_btn = gr.Button("🌍 Translate", variant="primary", size="lg")
-                    
-                    transcribed_text = gr.Textbox(
-                        label="Transcribed Text (Original)",
-                        interactive=False,
-                        lines=3
-                    )
-                    
-                    translated_text = gr.Textbox(
-                        label="Translated Text",
-                        interactive=False,
-                        lines=3
-                    )
-                    
-                    translation_output = gr.Audio(
-                        label="Translation (Audio Output)",
-                        type="filepath",
-                        interactive=False
-                    )
-        
-        reset_btn = gr.Button("🔄 Reset Session", variant="secondary")
-
-        # Execution log (always visible at bottom)
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("### 📋 Execution Log")
-                execution_log = gr.Textbox(
-                    label="Current Session Log",
-                    interactive=False,
-                    lines=8,
-                    value="Session not started yet."
-                )
-        
-        # Store components for access in event handlers
-        self.components = {
-            'walkthrough': walkthrough,
-            'greeting_audio': greeting_audio,
-            'language_input': language_input,
-            'confirmation_audio': confirmation_audio,
-            'confirmation_input': confirmation_input,
-            'translation_input': translation_input,
-            'transcribed_text': transcribed_text,
-            'translated_text': translated_text,
-            'translation_output': translation_output
-        }
-        
-        self.shared_components = {
-            'execution_log': execution_log,
-            'instructions': instructions
-        }
-        
-        # Event handlers
-        start_btn.click(
-            fn=self.start_translation_session,
-            inputs=[],
-            outputs=[
-                greeting_audio, execution_log, walkthrough
-            ]
-        )
-        
-        reset_btn.click(
-            fn=self.reset_translation_session,
-            inputs=[],
-            outputs=[
-                greeting_audio, confirmation_audio, transcribed_text, translated_text, translation_output,
-                execution_log, walkthrough
-            ]
-        )
-        
-        submit_languages_btn.click(
-            fn=self.process_language_selection,
-            inputs=[language_input],
-            outputs=[confirmation_audio, execution_log, walkthrough]
-        )
-        
-        submit_confirmation_btn.click(
-            fn=self.process_confirmation,
-            inputs=[confirmation_input],
-            outputs=[execution_log, walkthrough]
-        )
-        
-        translate_btn.click(
-            fn=self.process_translation,
-            inputs=[translation_input],
-            outputs=[transcribed_text, translated_text, translation_output, execution_log, walkthrough]
-        )
-        
-    
-    
-    def start_translation_session(self):
-        """Start a new translation session with logger."""
+    def start_session(self):
+        """Start a new Voice Sight session."""
         try:
-            # Create new logger for this session
-            run_name = f"translation_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}"
+            # Create new logger
+            run_name = f"voice_sight_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}"
             self.current_logger = create_logger(run_name=run_name, base_dir=self.runs_dir)
             
-            # Update pipeline with logger
-            self.translation_pipeline.logger = self.current_logger
+            # Create new session
+            self.current_session = VoiceSightSession()
+            
+            # Create agent with logger
+            self.agent = VoiceSightAgent(api_key=self.api_key, use_thinking=True, logger=self.current_logger)
             
             # Log session start
-            self.current_logger.log_step("session_initialization", {
-                "feature": "translation",
-                "run_name": run_name
+            self.current_logger.log_step("session_start", {
+                "session_id": self.current_session.session_id,
+                "timestamp": datetime.now().isoformat()
             })
             
-            greeting_audio_path = self.translation_session.start_session()
+            # Start conversation with greeting
+            greeting_result = self.agent.start_conversation()
             
-            # Update execution log
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session started (Run: {run_name})\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Agent greeting generated\n"
-            
-            return greeting_audio_path, log_entry, gr.Walkthrough(selected=1)
+            if greeting_result["success"]:
+                # Add greeting to session
+                self.current_session.add_message(
+                    role="assistant",
+                    content=greeting_result["text"],
+                    metadata={"audio_path": greeting_result["audio_path"]}
+                )
+                
+                status = "✅ Session started! Agent is ready to help."
+                conversation = f"🤖 Agent: {greeting_result['text']}"
+                log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session started (ID: {self.current_session.session_id})\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Greeting generated\n"
+                
+                return status, conversation, log_entry
+            else:
+                error_msg = f"❌ Failed to start session: {greeting_result.get('error', 'Unknown error')}"
+                log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {greeting_result.get('error', 'Unknown error')}\n"
+                return error_msg, "No conversation yet.", log_entry
                 
         except Exception as e:
-            if self.current_logger:
-                self.current_logger.log_error("session_start_failed", str(e))
             error_msg = f"❌ Error starting session: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return None, log_entry, gr.Walkthrough(selected=0)
+            return error_msg, "No conversation yet.", log_entry
     
-    def reset_translation_session(self):
-        """Reset the translation session and finalize logger."""
-        # Finalize current logger if exists
+    def reset_session(self):
+        """Reset the current session."""
+        try:
+            # Finalize current logger
+            if self.current_logger:
+                self.current_logger.log_step("session_reset", {"status": "reset"})
+                self.current_logger.finalize()
+                self.current_logger = None
+            
+            # Reset session
+            if self.current_session:
+                self.current_session.reset()
+            
+            self.current_session = None
+            
+            status = "🔄 Session reset. Click 'Start Session' to begin a new conversation."
+            conversation = "No conversation yet."
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session reset\n"
+            
+            return None, status, conversation, log_entry
+            
+        except Exception as e:
+            error_msg = f"❌ Error resetting session: {str(e)}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
+            return None, error_msg, "No conversation yet.", log_entry
+    
+    def process_input(self, audio_input: str, image_input: str):
+        """Process user input (audio and/or image) and generate response."""
+        if not audio_input and not image_input:
+            return None, "❌ Please provide audio or image input.", "No conversation yet.", "No input provided."
+        
+        if not self.current_session:
+            return None, "❌ Please start a session first.", "No conversation yet.", "No active session."
+        
+        try:
+            # Determine input type and process accordingly
+            if audio_input and image_input:
+                # Both audio and image provided - process both
+                return self._process_audio_and_image(audio_input, image_input)
+            elif audio_input:
+                # Only audio provided
+                return self._process_audio_only(audio_input)
+            elif image_input:
+                # Only image provided
+                return self._process_image_only(image_input)
+                
+        except Exception as e:
+            error_msg = f"❌ Error processing input: {str(e)}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
+            return None, error_msg, self._format_conversation_log(), log_entry
+    
+    def _process_audio_only(self, audio_input: str):
+        """Process audio input only."""
+        # Log audio processing
         if self.current_logger:
-            self.current_logger.log_step("session_reset", {"status": "reset"})
-            self.current_logger.finalize()
-            self.current_logger = None
+            self.current_logger.log_step("audio_processing", {
+                "audio_file": os.path.basename(audio_input),
+                "timestamp": datetime.now().isoformat()
+            })
         
-        # Reset session
-        self.translation_session.reset()
+        # Process audio with agent
+        if not self.agent:
+            return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
         
-        # Remove logger from pipeline
-        self.translation_pipeline.logger = None
+        result = self.agent.process_audio_input(audio_input, {
+            "conversation_history": self.current_session.get_conversation_context(),
+            "last_transcription": ""
+        })
         
-        status = "Session reset. Click 'Start Translation Session' to begin."
-        log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session reset\n"
-        
-        return None, None, "", "", "", None, log_entry, gr.Walkthrough(selected=0)
-    
-    def process_language_selection(self, audio_input: str):
-        """Process user's language selection."""
-        if not audio_input:
-            return None, ""
-        
-        if self.translation_session.state != "waiting_languages":
-            return None, ""
-        
-        try:
-            if self.current_logger:
-                self.current_logger.log_step("language_selection_received", {
-                    "audio_file": os.path.basename(audio_input)
-                })
+        if result["success"]:
+            # Add user message to session
+            transcription = result.get("transcription", "")
+            if transcription:
+                self.current_session.add_message(
+                    role="user",
+                    content=transcription,
+                    metadata={"audio_path": audio_input}
+                )
+            
+            # Add agent response to session
+            if result.get("audio_path"):
+                response_text = result.get("response_text", "")
+                self.current_session.add_message(
+                    role="assistant",
+                    content=response_text,
+                    metadata={"audio_path": result["audio_path"]}
+                )
+            
+            # Update conversation log
+            conversation = self._format_conversation_log()
+            
+            # Update status
+            status = "✅ Audio processed successfully!"
             
             # Update execution log
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Processing language selection...\n"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Audio processed\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Transcription: '{transcription}'\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
             
-            # Transcribe user's input
-            transcribed = self.translation_pipeline.transcribe_audio(audio_input)
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Transcribed: '{transcribed}'\n"
-            
-            # Parse language intent
-            from_lang, to_lang = self.translation_pipeline.parse_language_intent(transcribed)
-            
-            if from_lang is None or to_lang is None:
-                if self.current_logger:
-                    self.current_logger.log_error("language_intent_unclear", f"Could not parse: {transcribed}")
-                status = f"❌ Could not understand language preferences. You said: '{transcribed}'\nPlease try again and clearly state both languages."
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Error: Could not parse language intent\n"
-                return None, status, log_entry
-            
-            # Store languages
-            self.translation_session.from_lang = from_lang
-            self.translation_session.to_lang = to_lang
-            self.translation_session.state = "waiting_confirmation"
-            
+            # Log results
             if self.current_logger:
-                self.current_logger.log_result("language_selection", {
-                    "from_language": from_lang,
-                    "to_language": to_lang,
-                    "user_input": transcribed
+                self.current_logger.log_result("audio_processing_complete", {
+                    "transcription": transcription,
+                    "response_text": result.get("response_text", ""),
+                    "audio_path": result.get("audio_path", ""),
+                    "success": True
                 })
             
-            # Generate confirmation prompt
-            confirmation_audio = self.translation_pipeline.generate_confirmation_prompt(
-                from_lang, to_lang
+            return result.get("audio_path"), status, conversation, log_entry
+        else:
+            error_msg = f"❌ Processing failed: {result.get('error', 'Unknown error')}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
+            return None, error_msg, self._format_conversation_log(), log_entry
+    
+    def _process_image_only(self, image_input: str):
+        """Process image input only."""
+        # Log image processing
+        if self.current_logger:
+            self.current_logger.log_step("image_processing", {
+                "image_file": os.path.basename(image_input),
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        # Process image with agent using analyze_image tool
+        result = self._process_image_with_agent(image_input)
+        
+        if result["success"]:
+            # Add user message to session
+            if self.current_session:
+                self.current_session.add_message(
+                    role="user",
+                    content=f"Image analysis request: {image_input}",
+                    metadata={"image_path": image_input}
+                )
+            
+            # Add agent response to session
+            if result.get("audio_path") and self.current_session:
+                response_text = result.get("response_text", "")
+                self.current_session.add_message(
+                    role="assistant",
+                    content=response_text,
+                    metadata={"audio_path": result["audio_path"]}
+                )
+            
+            # Update conversation log
+            conversation = self._format_conversation_log()
+            
+            # Update status
+            status = "✅ Image analyzed successfully!"
+            
+            # Update execution log
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Image processed\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Analysis: {result.get('analysis', '')}\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
+            
+            # Log results
+            if self.current_logger:
+                self.current_logger.log_result("image_processing_complete", {
+                    "image_path": image_input,
+                    "analysis": result.get("analysis", ""),
+                    "response_text": result.get("response_text", ""),
+                    "audio_path": result.get("audio_path", ""),
+                    "success": True
+                })
+            
+            return result.get("audio_path"), status, conversation, log_entry
+        else:
+            error_msg = f"❌ Image analysis failed: {result.get('error', 'Unknown error')}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
+            return None, error_msg, self._format_conversation_log(), log_entry
+    
+    def _process_audio_and_image(self, audio_input: str, image_input: str):
+        """Process both audio and image inputs."""
+        # Log multimodal processing
+        if self.current_logger:
+            self.current_logger.log_step("multimodal_processing", {
+                "audio_file": os.path.basename(audio_input),
+                "image_file": os.path.basename(image_input),
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        # First process the audio to get transcription
+        if not self.agent:
+            return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
+        
+        audio_result = self.agent.process_audio_input(audio_input, {
+            "conversation_history": self.current_session.get_conversation_context(),
+            "last_transcription": ""
+        })
+        
+        if not audio_result["success"]:
+            error_msg = f"❌ Audio processing failed: {audio_result.get('error', 'Unknown error')}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {audio_result.get('error', 'Unknown error')}\n"
+            return None, error_msg, self._format_conversation_log(), log_entry
+        
+        # Then process the image with the audio context
+        transcription = audio_result.get("transcription", "")
+        result = self._process_image_with_agent(image_input, transcription)
+        
+        if result["success"]:
+            # Add user message to session
+            self.current_session.add_message(
+                role="user",
+                content=f"Audio: {transcription} | Image: {image_input}",
+                metadata={"audio_path": audio_input, "image_path": image_input}
             )
             
-            lang_names = self.translation_pipeline.language_names
-            status = f"✅ Understood: {lang_names[from_lang]} → {lang_names[to_lang]}\nPlease listen and confirm."
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Languages selected: {lang_names[from_lang]} → {lang_names[to_lang]}\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Confirmation prompt generated\n"
+            # Add agent response to session
+            if result.get("audio_path"):
+                response_text = result.get("response_text", "")
+                self.current_session.add_message(
+                    role="assistant",
+                    content=response_text,
+                    metadata={"audio_path": result["audio_path"]}
+                )
             
-            return confirmation_audio, log_entry, gr.Walkthrough(selected=2)
+            # Update conversation log
+            conversation = self._format_conversation_log()
             
-        except Exception as e:
-            if self.current_logger:
-                self.current_logger.log_error("language_selection_error", str(e))
-            error_msg = f"❌ Error processing language selection: {str(e)}"
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return None, log_entry, gr.Walkthrough(selected=1)
-    
-    def process_confirmation(self, audio_input: str):
-        """Process user's confirmation."""
-        if not audio_input:
-            return "", gr.Walkthrough(selected=2)
-        
-        if self.translation_session.state != "waiting_confirmation":
-            return "", gr.Walkthrough(selected=2)
-        
-        try:
-            if self.current_logger:
-                self.current_logger.log_step("confirmation_received", {
-                    "audio_file": os.path.basename(audio_input)
-                })
+            # Update status
+            status = "✅ Audio and image processed successfully!"
             
             # Update execution log
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Processing confirmation...\n"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Multimodal processing\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio transcription: '{transcription}'\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Image analysis: {result.get('analysis', '')}\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
             
-            # Check if user confirmed
-            confirmed = self.translation_pipeline.check_confirmation(audio_input)
+            # Log results
+            if self.current_logger:
+                self.current_logger.log_result("multimodal_processing_complete", {
+                    "transcription": transcription,
+                    "image_path": image_input,
+                    "analysis": result.get("analysis", ""),
+                    "response_text": result.get("response_text", ""),
+                    "audio_path": result.get("audio_path", ""),
+                    "success": True
+                })
             
-            if confirmed:
-                self.translation_session.state = "translating"
-                
-                if self.current_logger:
-                    self.current_logger.log_result("confirmation", {
-                        "confirmed": True,
-                        "state": "translating"
-                    })
-                
-                # TODO: let the agent speak this message
-                status = "Confirmed! You can now speak in your source language and click 'Translate'."
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Confirmation successful\n"
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Ready for translation\n"
-                
-                return log_entry, gr.Walkthrough(selected=3)
+            return result.get("audio_path"), status, conversation, log_entry
+        else:
+            error_msg = f"❌ Multimodal processing failed: {result.get('error', 'Unknown error')}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
+            return None, error_msg, self._format_conversation_log(), log_entry
+    
+    
+    def _process_image_with_agent(self, image_path: str, transcription: str = "") -> Dict[str, Any]:
+        """Process image using the agent's image analysis tools."""
+        try:
+            # Create a conversation context for image analysis
+            if not self.agent:
+                return {
+                    "success": False,
+                    "error": "Agent not initialized",
+                    "audio_path": None,
+                    "analysis": None,
+                    "response_text": None
+                }
+            
+            messages = [
+                {"role": "system", "content": self.agent.system_prompt}
+            ]
+            
+            # Add session context
+            if self.current_session:
+                conversation_history = self.current_session.get_conversation_context()
+                messages.extend(conversation_history[-3:])  # Last 3 messages
+            
+            # Add image analysis request with optional audio context
+            if transcription:
+                messages.append({
+                    "role": "user",
+                    "content": f"User said: '{transcription}'. Please analyze this image for safety and navigation assistance: {image_path}"
+                })
             else:
-                transcribed = self.translation_pipeline.transcribe_audio(audio_input)
-                
-                if self.current_logger:
-                    self.current_logger.log_warning("confirmation_failed", f"User said: {transcribed}")
-                
-                # TODO: let the agent speak this message
-                status = f"Not confirmed. You said: '{transcribed}'\nPlease say 'confirm' to proceed."
-                
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Confirmation failed: '{transcribed}'\n"
-                
-                return log_entry, gr.Walkthrough(selected=2)
-                
+                messages.append({
+                    "role": "user",
+                    "content": f"Please analyze this image for safety and navigation assistance: {image_path}"
+                })
+            
+            # Get LLM response with tool calls
+            response = self.agent._get_llm_response(messages)
+            
+            # Execute tool calls
+            result = self.agent._execute_tool_calls(response, {
+                "conversation_history": self.current_session.get_conversation_context() if self.current_session else [],
+                "image_path": image_path
+            })
+            
+            return result
+            
         except Exception as e:
-            if self.current_logger:
-                self.current_logger.log_error("confirmation_error", str(e))
-            error_msg = f"❌ Error processing confirmation: {str(e)}"
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return log_entry, gr.Walkthrough(selected=2)
+            return {
+                "success": False,
+                "error": str(e),
+                "audio_path": None,
+                "analysis": None,
+                "response_text": None
+            }
     
-    def process_translation(self, audio_input: str):
-        """Process audio translation."""
-        if not audio_input:
-            return "❌ Please record audio to translate.", "", None, ""
+    def _format_conversation_log(self) -> str:
+        """Format conversation history for display."""
+        if not self.current_session:
+            return "No conversation yet."
         
-        if self.translation_session.state != "translating":
-            return "❌ Please complete the setup steps first.", "", None, ""
+        conversation_history = self.current_session.get_conversation_context()
+        if not conversation_history:
+            return "No conversation yet."
         
-        try:
-            # Check that languages are set
-            if not self.translation_session.from_lang or not self.translation_session.to_lang:
-                return "❌ Language settings missing. Please restart the session.", "", None, ""
+        formatted_log = []
+        for message in conversation_history:
+            role = message["role"]
+            content = message["content"]
+            # timestamp = message["timestamp"]  # Not used in current implementation
             
-            if self.current_logger:
-                self.current_logger.log_step("translation_received", {
-                    "audio_file": os.path.basename(audio_input),
-                    "from_language": self.translation_session.from_lang,
-                    "to_language": self.translation_session.to_lang
-                })
-            
-            # Update execution log
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Starting translation...\n"
-            
-            # Perform audio-to-audio translation
-            transcribed, translated, output_audio = self.translation_pipeline.translate_audio_to_audio(
-                input_audio_path=audio_input,
-                from_lang=self.translation_session.from_lang,
-                to_lang=self.translation_session.to_lang
-            )
-            
-            # Log final results
-            if self.current_logger:
-                self.current_logger.log_result("translation_complete", {
-                    "from_language": self.translation_session.from_lang,
-                    "to_language": self.translation_session.to_lang,
-                    "original_text": transcribed,
-                    "translated_text": translated,
-                    "output_audio_file": os.path.basename(output_audio)
-                })
-                
-                # Save a copy of output audio to run directory
-                try:
-                    import shutil
-                    audio_copy = self.current_logger.run_dir + "/translation_output.wav"
-                    shutil.copy(output_audio, audio_copy)
-                except Exception:
-                    pass
-            
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Translation complete\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Original: '{transcribed}'\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Translated: '{translated}'\n"
-            
-            return transcribed, translated, output_audio, log_entry, gr.Walkthrough(selected=3)
-            
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            if self.current_logger:
-                self.current_logger.log_error("translation_error", error_msg)
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {error_msg}\n"
-            return f"❌ Error during translation: {error_msg}", "", None, log_entry
+            if role == "user":
+                formatted_log.append(f"👤 You: {content}")
+            elif role == "assistant":
+                formatted_log.append(f"🤖 Agent: {content}")
+        
+        return "\n".join(formatted_log)
     
     def launch(self, **kwargs):
         """Launch the Gradio interface."""
         demo = self.build_interface()
-        # Disable API info to avoid schema parsing issues
         kwargs.setdefault('show_api', False)
         demo.launch(**kwargs)
 
@@ -465,21 +534,19 @@ def main():
         print("Warning: BOSON_API_KEY not found in environment variables.")
         print("Please set it using: export BOSON_API_KEY='your-api-key'")
     
-    # Set up runs directory (relative to project root)
+    # Set up runs directory
     project_root = os.path.dirname(current_dir)
     runs_dir = os.path.join(project_root, "runs")
     
     print(f"Runs directory: {runs_dir}")
     
     # Create and launch app
-    app = AudioAgenticApp(api_key=api_key, runs_dir=runs_dir)
+    app = VoiceSightApp(api_key=api_key, runs_dir=runs_dir)
     app.launch(
         server_name="0.0.0.0",
-        server_port=7860,
+        server_port=7861,
         share=False
     )
 
-
 if __name__ == "__main__":
     main()
-

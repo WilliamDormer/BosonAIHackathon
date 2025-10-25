@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# source .venv/bin/activate
+# Activate virtual environment
+source .venv/bin/activate
 
 echo "--------------------------------"
 echo "🚀 Running the Main Application"

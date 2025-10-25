@@ -10,7 +10,7 @@ import base64
 import openai
 from typing import Optional, Dict, Any
 
-class AudioUnderstanding:
+class ASR:
 
     def __init__(self, model_name: str = "higgs-audio-understanding-Hackathon", api_key_override: str | None = None):
         
