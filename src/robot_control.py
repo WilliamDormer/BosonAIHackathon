@@ -14,6 +14,11 @@ class RobotWrapper:
             'gripper.pos',
         }
 
+        # entry for each link name (in valid keys), maps to link length (a) 
+        self.dh_table ={
+
+        }
+
         config = SO101FollowerConfig(
             port = '/dev/tty.usbmodem5A7A0558341', # front port on my mac.
             max_relative_target = 5.0, # controls magnitude of relative target vector.
