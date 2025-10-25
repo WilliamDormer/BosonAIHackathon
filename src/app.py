@@ -74,134 +74,150 @@ class AudioAgenticApp:
         gr.Markdown("## Two-Way Audio Translation")
         gr.Markdown("Translate speech between Chinese and English in real-time.")
         
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("### 📝 Instructions")
-                gr.Markdown("""
+        # Walkthrough component for step-by-step workflow
+        with gr.Walkthrough(selected=0) as walkthrough:
+            with gr.Step("📝 Instructions", id=0):
+                instructions = gr.Markdown("""
+                **Step-by-Step Translation Process:**
                 1. Click **Start Session** to begin
-                2. Listen to the agent's question (audio will play)
-                3. Specify your source and target languages (e.g., "Chinese to English")
-                4. Listen to the confirmation and say "Confirm" when ready
-                5. Speak your message to be translated
-                6. The system will translate and play back the result
+                2. **Step 1**: Specify your language preferences (e.g., "Chinese to English")
+                3. **Step 2**: Confirm your language choice by saying "confirm"
+                4. **Step 3**: Speak in your source language to get translation
+                5. The system will automatically progress through each step
                 """)
-                
                 start_btn = gr.Button("🎬 Start Translation Session", variant="primary", size="lg")
-                reset_btn = gr.Button("🔄 Reset Session", variant="secondary")
+            
+            # Step 1: Language Selection
+            with gr.Step("🎤 Step 1: Specify Languages", id=1):
+                with gr.Column():
+                    greeting_audio = gr.Audio(
+                        label="Agent Greeting",
+                        type="filepath",
+                        interactive=False
+                    )
+                    
+                    language_input = gr.Audio(
+                        label="Your Response (Specify Languages)",
+                        type="filepath",
+                        sources=["microphone"]
+                    )
+                    
+                    submit_languages_btn = gr.Button("Submit Language Choice", variant="primary")
+            
+            # Step 2: Confirmation
+            with gr.Step("✅ Step 2: Confirm", id=2):
+                with gr.Column():
+                    confirmation_audio = gr.Audio(
+                        label="Confirmation Prompt",
+                        type="filepath",
+                        interactive=False
+                    )
+                    
+                    confirmation_input = gr.Audio(
+                        label="Say 'Confirm'",
+                        type="filepath",
+                        sources=["microphone"]
+                    )
+                    
+                    submit_confirmation_btn = gr.Button("Submit Confirmation", variant="primary")
+            
+            # Step 3: Translation
+            with gr.Step("🔊 Step 3: Translate", id=3):
+                with gr.Column():
+                    translation_input = gr.Audio(
+                        label="Speak in Source Language",
+                        type="filepath",
+                        sources=["microphone"]
+                    )
+                    
+                    translate_btn = gr.Button("🌍 Translate", variant="primary", size="lg")
+                    
+                    transcribed_text = gr.Textbox(
+                        label="Transcribed Text (Original)",
+                        interactive=False,
+                        lines=3
+                    )
+                    
+                    translated_text = gr.Textbox(
+                        label="Translated Text",
+                        interactive=False,
+                        lines=3
+                    )
+                    
+                    translation_output = gr.Audio(
+                        label="Translation (Audio Output)",
+                        type="filepath",
+                        interactive=False
+                    )
         
+        reset_btn = gr.Button("🔄 Reset Session", variant="secondary")
+
+        # Execution log (always visible at bottom)
         with gr.Row():
             with gr.Column():
-                gr.Markdown("### 🎤 Step 1: Specify Languages")
-                
-                greeting_audio = gr.Audio(
-                    label="Agent Greeting",
-                    type="filepath",
-                    interactive=False
-                )
-                
-                language_input = gr.Audio(
-                    label="Your Response (Specify Languages)",
-                    type="filepath",
-                    sources=["microphone"]
-                )
-                
-                submit_languages_btn = gr.Button("Submit Language Choice", variant="primary")
-                
-                language_status = gr.Textbox(
-                    label="Status",
+                gr.Markdown("### 📋 Execution Log")
+                execution_log = gr.Textbox(
+                    label="Current Session Log",
                     interactive=False,
-                    lines=2
+                    lines=8,
+                    value="Session not started yet."
                 )
         
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("### ✅ Step 2: Confirm")
-                
-                confirmation_audio = gr.Audio(
-                    label="Confirmation Prompt",
-                    type="filepath",
-                    interactive=False
-                )
-                
-                confirmation_input = gr.Audio(
-                    label="Say 'Confirm'",
-                    type="filepath",
-                    sources=["microphone"]
-                )
-                
-                submit_confirmation_btn = gr.Button("Submit Confirmation", variant="primary")
-                
-                confirmation_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    lines=2
-                )
+        # Store components for access in event handlers
+        self.components = {
+            'walkthrough': walkthrough,
+            'greeting_audio': greeting_audio,
+            'language_input': language_input,
+            'confirmation_audio': confirmation_audio,
+            'confirmation_input': confirmation_input,
+            'translation_input': translation_input,
+            'transcribed_text': transcribed_text,
+            'translated_text': translated_text,
+            'translation_output': translation_output
+        }
         
-        with gr.Row():
-            with gr.Column():
-                gr.Markdown("### 🔊 Step 3: Translate")
-                
-                translation_input = gr.Audio(
-                    label="Speak in Source Language",
-                    type="filepath",
-                    sources=["microphone"]
-                )
-                
-                translate_btn = gr.Button("🌍 Translate", variant="primary", size="lg")
-                
-                transcribed_text = gr.Textbox(
-                    label="Transcribed Text (Original)",
-                    interactive=False,
-                    lines=3
-                )
-                
-                translated_text = gr.Textbox(
-                    label="Translated Text",
-                    interactive=False,
-                    lines=3
-                )
-                
-                translation_output = gr.Audio(
-                    label="Translation (Audio Output)",
-                    type="filepath",
-                    interactive=False
-                )
+        self.shared_components = {
+            'execution_log': execution_log,
+            'instructions': instructions
+        }
         
         # Event handlers
         start_btn.click(
             fn=self.start_translation_session,
             inputs=[],
-            outputs=[greeting_audio, language_status]
+            outputs=[
+                greeting_audio, execution_log, walkthrough
+            ]
         )
         
         reset_btn.click(
             fn=self.reset_translation_session,
             inputs=[],
             outputs=[
-                greeting_audio, language_status, confirmation_audio,
-                confirmation_status, transcribed_text, translated_text, translation_output
+                greeting_audio, confirmation_audio, transcribed_text, translated_text, translation_output,
+                execution_log, walkthrough
             ]
         )
         
         submit_languages_btn.click(
             fn=self.process_language_selection,
             inputs=[language_input],
-            outputs=[confirmation_audio, language_status]
+            outputs=[confirmation_audio, execution_log, walkthrough]
         )
         
         submit_confirmation_btn.click(
             fn=self.process_confirmation,
             inputs=[confirmation_input],
-            outputs=[confirmation_status]
+            outputs=[execution_log, walkthrough]
         )
         
         translate_btn.click(
             fn=self.process_translation,
             inputs=[translation_input],
-            outputs=[transcribed_text, translated_text, translation_output]
+            outputs=[transcribed_text, translated_text, translation_output, execution_log, walkthrough]
         )
+        
     
-    # Translation event handlers
     
     def start_translation_session(self):
         """Start a new translation session with logger."""
@@ -220,13 +236,19 @@ class AudioAgenticApp:
             })
             
             greeting_audio_path = self.translation_session.start_session()
-            status = f"✅ Session started! Run: {run_name}\nPlease record your language preferences."
             
-            return greeting_audio_path, status
+            # Update execution log
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session started (Run: {run_name})\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Agent greeting generated\n"
+            
+            return greeting_audio_path, log_entry, gr.Walkthrough(selected=1)
+                
         except Exception as e:
             if self.current_logger:
                 self.current_logger.log_error("session_start_failed", str(e))
-            return None, f"❌ Error starting session: {str(e)}"
+            error_msg = f"❌ Error starting session: {str(e)}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
+            return None, log_entry, gr.Walkthrough(selected=0)
     
     def reset_translation_session(self):
         """Reset the translation session and finalize logger."""
@@ -243,15 +265,17 @@ class AudioAgenticApp:
         self.translation_pipeline.logger = None
         
         status = "Session reset. Click 'Start Translation Session' to begin."
-        return None, status, None, "", "", "", None
+        log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session reset\n"
+        
+        return None, None, "", "", "", None, log_entry, gr.Walkthrough(selected=0)
     
     def process_language_selection(self, audio_input: str):
         """Process user's language selection."""
         if not audio_input:
-            return None, "❌ Please record your language preferences first."
+            return None, ""
         
         if self.translation_session.state != "waiting_languages":
-            return None, "❌ Please start a session first."
+            return None, ""
         
         try:
             if self.current_logger:
@@ -259,8 +283,12 @@ class AudioAgenticApp:
                     "audio_file": os.path.basename(audio_input)
                 })
             
+            # Update execution log
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Processing language selection...\n"
+            
             # Transcribe user's input
             transcribed = self.translation_pipeline.transcribe_audio(audio_input)
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Transcribed: '{transcribed}'\n"
             
             # Parse language intent
             from_lang, to_lang = self.translation_pipeline.parse_language_intent(transcribed)
@@ -269,7 +297,8 @@ class AudioAgenticApp:
                 if self.current_logger:
                     self.current_logger.log_error("language_intent_unclear", f"Could not parse: {transcribed}")
                 status = f"❌ Could not understand language preferences. You said: '{transcribed}'\nPlease try again and clearly state both languages."
-                return None, status
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Error: Could not parse language intent\n"
+                return None, status, log_entry
             
             # Store languages
             self.translation_session.from_lang = from_lang
@@ -290,27 +319,34 @@ class AudioAgenticApp:
             
             lang_names = self.translation_pipeline.language_names
             status = f"✅ Understood: {lang_names[from_lang]} → {lang_names[to_lang]}\nPlease listen and confirm."
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Languages selected: {lang_names[from_lang]} → {lang_names[to_lang]}\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Confirmation prompt generated\n"
             
-            return confirmation_audio, status
+            return confirmation_audio, log_entry, gr.Walkthrough(selected=2)
             
         except Exception as e:
             if self.current_logger:
                 self.current_logger.log_error("language_selection_error", str(e))
-            return None, f"❌ Error processing language selection: {str(e)}"
+            error_msg = f"❌ Error processing language selection: {str(e)}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
+            return None, log_entry, gr.Walkthrough(selected=1)
     
     def process_confirmation(self, audio_input: str):
         """Process user's confirmation."""
         if not audio_input:
-            return "❌ Please record your confirmation."
+            return "", gr.Walkthrough(selected=2)
         
         if self.translation_session.state != "waiting_confirmation":
-            return "❌ Please select languages first."
+            return "", gr.Walkthrough(selected=2)
         
         try:
             if self.current_logger:
                 self.current_logger.log_step("confirmation_received", {
                     "audio_file": os.path.basename(audio_input)
                 })
+            
+            # Update execution log
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Processing confirmation...\n"
             
             # Check if user confirmed
             confirmed = self.translation_pipeline.check_confirmation(audio_input)
@@ -324,32 +360,44 @@ class AudioAgenticApp:
                         "state": "translating"
                     })
                 
-                return "✅ Confirmed! You can now speak in your source language and click 'Translate'."
+                # TODO: let the agent speak this message
+                status = "Confirmed! You can now speak in your source language and click 'Translate'."
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Confirmation successful\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Ready for translation\n"
+                
+                return log_entry, gr.Walkthrough(selected=3)
             else:
                 transcribed = self.translation_pipeline.transcribe_audio(audio_input)
                 
                 if self.current_logger:
                     self.current_logger.log_warning("confirmation_failed", f"User said: {transcribed}")
                 
-                return f"❌ Not confirmed. You said: '{transcribed}'\nPlease say 'confirm' to proceed."
+                # TODO: let the agent speak this message
+                status = f"Not confirmed. You said: '{transcribed}'\nPlease say 'confirm' to proceed."
+                
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Confirmation failed: '{transcribed}'\n"
+                
+                return log_entry, gr.Walkthrough(selected=2)
                 
         except Exception as e:
             if self.current_logger:
                 self.current_logger.log_error("confirmation_error", str(e))
-            return f"❌ Error processing confirmation: {str(e)}"
+            error_msg = f"❌ Error processing confirmation: {str(e)}"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
+            return log_entry, gr.Walkthrough(selected=2)
     
     def process_translation(self, audio_input: str):
         """Process audio translation."""
         if not audio_input:
-            return "❌ Please record audio to translate.", "", None
+            return "❌ Please record audio to translate.", "", None, ""
         
         if self.translation_session.state != "translating":
-            return "❌ Please complete the setup steps first.", "", None
+            return "❌ Please complete the setup steps first.", "", None, ""
         
         try:
             # Check that languages are set
             if not self.translation_session.from_lang or not self.translation_session.to_lang:
-                return "❌ Language settings missing. Please restart the session.", "", None
+                return "❌ Language settings missing. Please restart the session.", "", None, ""
             
             if self.current_logger:
                 self.current_logger.log_step("translation_received", {
@@ -357,6 +405,9 @@ class AudioAgenticApp:
                     "from_language": self.translation_session.from_lang,
                     "to_language": self.translation_session.to_lang
                 })
+            
+            # Update execution log
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Starting translation...\n"
             
             # Perform audio-to-audio translation
             transcribed, translated, output_audio = self.translation_pipeline.translate_audio_to_audio(
@@ -383,13 +434,18 @@ class AudioAgenticApp:
                 except Exception:
                     pass
             
-            return transcribed, translated, output_audio
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Translation complete\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Original: '{transcribed}'\n"
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Translated: '{translated}'\n"
+            
+            return transcribed, translated, output_audio, log_entry, gr.Walkthrough(selected=3)
             
         except Exception as e:
             error_msg = f"{type(e).__name__}: {str(e)}"
             if self.current_logger:
                 self.current_logger.log_error("translation_error", error_msg)
-            return f"❌ Error during translation: {error_msg}", "", None
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {error_msg}\n"
+            return f"❌ Error during translation: {error_msg}", "", None, log_entry
     
     def launch(self, **kwargs):
         """Launch the Gradio interface."""
