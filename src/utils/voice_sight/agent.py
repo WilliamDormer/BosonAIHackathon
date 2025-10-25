@@ -267,9 +267,26 @@ class VoiceSightAgent:
             {"role": "system", "content": self.system_prompt}
         ]
         
-        # Add agent's own conversation context (last 5 messages)
+        # Explicit session context about image availability for this turn
+        if self.has_image and self.current_image_path:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Current turn context: An image has been uploaded for this turn and is available for analysis. "
+                    "If helpful, call the visual_analysis function with a concise question relevant to the user's need."
+                )
+            })
+        else:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Current turn context: No image is available for this turn. Do not call the visual_analysis function."
+                )
+            })
+        
+        # Add agent's own conversation context (last 20 messages for multi-turn)
         if self.conversation_context:
-            messages.extend(self.conversation_context[-5:])
+            messages.extend(self.conversation_context[-20:])
         
         # Add current user input
         if transcription:
@@ -302,14 +319,6 @@ class VoiceSightAgent:
                     "tools_available": len(self.tools)
                 })
             
-            # Add tools to the messages for function calling
-            messages_with_tools = messages.copy()
-            if self.tools:
-                messages_with_tools.append({
-                    "role": "system",
-                    "content": f"Available tools: {json.dumps(self.tools, indent=2)}"
-                })
-            
             # Try with different temperatures if no tool calls are generated
             for attempt in range(max_retries):
                 # Use temperature != 0.0 for better function calling
@@ -322,23 +331,42 @@ class VoiceSightAgent:
                         "temperature": temperature
                     })
                 
-                # Use the LLM.chat_completion method with temperature
-                response = self.llm.chat_completion(
-                    assembled_payloads=messages_with_tools,
-                    validate_json=True,
-                    temperature=temperature
+                # Use the LLM.chat_completion method with standardized function calling
+                response_message = self.llm.chat_completion(
+                    assembled_payloads=messages,
+                    validate_json=False,  # Don't validate JSON when using function calling
+                    temperature=temperature,
+                    tools=self.tools,  # Pass tools directly to API
+                    tool_choice="auto"  # Let the model decide when to call functions
                 )
+                # Ensure we can access dynamic attributes from OpenAI message object
+                from typing import cast as _cast_any
+                response_message = _cast_any(Any, response_message)
                 
-                # Parse response and extract content and tool calls
-                response_text, tool_calls = self._parse_llm_response(response)
+                # Extract content and tool calls from the response message
+                response_text = response_message.content if response_message.content else ""
+                tool_calls = response_message.tool_calls if response_message.tool_calls else []
+                
+                # Convert tool_calls to our expected format
+                formatted_tool_calls = []
+                if tool_calls:
+                    for tool_call in tool_calls:
+                        formatted_tool_calls.append({
+                            "id": tool_call.id,
+                            "type": tool_call.type,
+                            "function": {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments
+                            }
+                        })
                 
                 # Check if we have at least 1 function call
-                if tool_calls and len(tool_calls) > 0:
+                if formatted_tool_calls and len(formatted_tool_calls) > 0:
                     # Success - we have tool calls
                     if self.logger:
                         self.logger.log_result("🤖 agent", {
                             "action": "llm_success",
-                            "content": f"LLM generated {len(tool_calls)} tool calls on attempt {attempt + 1}",
+                            "content": f"LLM generated {len(formatted_tool_calls)} tool calls on attempt {attempt + 1}",
                             "temperature": temperature
                         })
                     break
@@ -365,18 +393,18 @@ class VoiceSightAgent:
             
             # Log agent response
             if self.logger:
-                logger_text = f"🤖 agent\nResponse: {response_text}\nTool calls: {len(tool_calls)}"
+                logger_text = f"🤖 agent\nResponse: {response_text}\nTool calls: {len(formatted_tool_calls)}"
                 logger_payload = {
                     "action": "llm_response",
                     "content": response_text,
-                    "tool_calls_count": len(tool_calls),
+                    "tool_calls_count": len(formatted_tool_calls),
                     "thinking_mode": self.llm.use_thinking
                 }
                 self.logger.log_result(logger_text, logger_payload)
             
             return {
                 "content": response_text,
-                "tool_calls": tool_calls,
+                "tool_calls": formatted_tool_calls,
                 "role": "assistant"
             }
         except Exception as e:
@@ -385,72 +413,26 @@ class VoiceSightAgent:
             print(f"Error getting LLM response: {e}")
             return {"content": "", "tool_calls": [], "role": "assistant"}
     
-    def _parse_llm_response(self, response: str) -> tuple[str, List[Dict[str, Any]]]:
-        """Parse LLM response to extract content and tool calls."""
-        import re  # type: ignore
-        
-        try:
-            # Extract response text from <response></response> tags
-            response_match = re.search(r'<response>(.*?)</response>', response, re.DOTALL)
-            response_text = response_match.group(1).strip() if response_match else response
-            
-            # Extract tool calls from <tool_call></tool_call> tags
-            tool_calls = []
-            tool_call_pattern = r'<tool_call>(.*?)</tool_call>'
-            tool_call_matches = re.findall(tool_call_pattern, response, re.DOTALL)
-            
-            for tool_call_text in tool_call_matches:
-                try:
-                    # Parse tool call JSON
-                    tool_call_data = json.loads(tool_call_text.strip())
-                    
-                    # Handle both formats:
-                    # Format 1: {"name": "tool_name", "arguments": {...}}
-                    # Format 2: {"function_call": {"name": "tool_name", "parameters": {...}}}
-                    
-                    if "function_call" in tool_call_data:
-                        # Format 2: function_call wrapper
-                        function_call = tool_call_data["function_call"]
-                        tool_calls.append({
-                            "function": {
-                                "name": function_call.get("name"),
-                                "arguments": json.dumps(function_call.get("parameters", {}))
-                            }
-                        })
-                    elif "name" in tool_call_data:
-                        # Format 1: direct format
-                        tool_calls.append({
-                            "function": {
-                                "name": tool_call_data.get("name"),
-                                "arguments": json.dumps(tool_call_data.get("arguments", {}))
-                            }
-                        })
-                    else:
-                        print(f"[LLM] Unknown tool call format: {tool_call_text}")
-                        continue
-                        
-                except (json.JSONDecodeError, KeyError) as e:
-                    print(f"[LLM] Error parsing tool call: {tool_call_text}, error: {e}")
-                    continue
-            
-            return response_text, tool_calls
-            
-        except Exception as e:
-            print(f"[LLM] Error parsing response: {response}, error: {e}")
-            return response, []
-    
     def _execute_tool_calls(self, response: Dict[str, Any], session_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute tool calls from LLM response with iterative calling for visual analysis."""
-        tool_calls = response.get("tool_calls", [])
-        results = []
-        audio_path = None
-        current_messages = session_context.get("current_messages", [])
+        """Execute tool calls iteratively until no more tool calls are returned (bounded loop)."""
+        results: List[Dict[str, Any]] = []
+        audio_path: Optional[str] = None
+        current_messages: List[Dict[str, Any]] = session_context.get("current_messages", [])
         
-        # Check if visual analysis has already been performed in this session
-        visual_analysis_done = session_context.get("visual_analysis_done", False)
+        # Iterative tool execution loop (bounded to prevent runaway)
+        max_iterations = 20
+        iteration = 0
+        current_response = response
         
-        # If there are tool calls, execute them
-        if tool_calls:
+        while iteration < max_iterations:
+            iteration += 1
+            tool_calls = current_response.get("tool_calls", [])
+            if not tool_calls:
+                break  # No more tool calls, we're done
+            
+            new_tool_activity = False
+            audio_generated = False
+            
             for tool_call in tool_calls:
                 try:
                     function_name = tool_call.get("function", {}).get("name")
@@ -458,92 +440,58 @@ class VoiceSightAgent:
                     
                     if function_name == "generate_audio":
                         result = self._execute_generate_audio(arguments)
+                        results.append({"function_name": function_name, "result": result})
                         if result.get("success"):
                             audio_path = result.get("audio_path")
-                    elif function_name == "visual_analysis" and not visual_analysis_done:
+                            # Once audio is generated, stop further tool execution and exit loop
+                            audio_generated = True
+                            new_tool_activity = True
+                            break
+                    elif function_name == "visual_analysis":
                         result = self._execute_visual_analysis(arguments)
-                        # If visual analysis succeeds, continue with LLM
+                        results.append({"function_name": function_name, "result": result})
                         if result.get("success"):
-                            # Mark visual analysis as done
-                            session_context["visual_analysis_done"] = True
-                            
-                            # Add visual analysis result to conversation context
+                            # Inject analysis back into the conversation as assistant context
                             visual_analysis_content = result.get('analysis', '')
                             current_messages.append({
                                 "role": "assistant",
                                 "content": f"Visual analysis result: {visual_analysis_content}"
                             })
-                            
-                            # Continue with LLM to get audio generation
-                            if self.logger:
-                                self.logger.log_result("🤖 agent", {
-                                    "action": "follow_up_llm_call",
-                                    "content": "Continuing with LLM after visual analysis",
-                                    "context": "visual_analysis_complete"
-                                })
-                            
-                            follow_up_response = self._get_llm_response(current_messages)
-                            follow_up_tool_calls = follow_up_response.get("tool_calls", [])
-                            
-                            # Execute follow-up tool calls (should include audio generation)
-                            for follow_up_call in follow_up_tool_calls:
-                                follow_up_name = follow_up_call.get("function", {}).get("name")
-                                follow_up_args = json.loads(follow_up_call.get("function", {}).get("arguments", "{}"))
-                                
-                                if follow_up_name == "generate_audio":
-                                    if self.logger:
-                                        self.logger.log_result("🔈 audio", {
-                                            "action": "audio_generation",
-                                            "content": "Generating audio from follow-up LLM call",
-                                            "text": follow_up_args.get("text", "")
-                                        })
-                                    
-                                    audio_result = self._execute_generate_audio(follow_up_args)
-                                    if audio_result.get("success"):
-                                        audio_path = audio_result.get("audio_path")
-                                        results.append({
-                                            "function_name": "generate_audio",
-                                            "result": audio_result
-                                        })
-                            
-                            # Update response content with follow-up content
-                            if follow_up_response.get("content"):
-                                response["content"] = follow_up_response.get("content")
-                        
-                        # Add visual analysis result to results
-                        results.append({
-                            "function_name": "visual_analysis",
-                            "result": result
-                        })
-                    elif function_name == "visual_analysis" and visual_analysis_done:
-                        # Skip visual analysis if already done
-                        if self.logger:
-                            self.logger.log_result("🤖 agent", {
-                                "action": "skip_visual_analysis",
-                                "content": "Visual analysis already completed, skipping",
-                                "context": "duplicate_call_prevented"
-                            })
+                            new_tool_activity = True
                     else:
-                        result = {"error": f"Unknown function: {function_name}"}
-                        results.append({
-                            "function_name": function_name,
-                            "result": result
-                        })
-                    
+                        result = {"success": False, "error": f"Unknown function: {function_name}"}
+                        results.append({"function_name": function_name or "unknown", "result": result})
                 except Exception as e:
                     results.append({
                         "function_name": tool_call.get("function", {}).get("name", "unknown"),
-                        "result": {"error": str(e)}
+                        "result": {"success": False, "error": str(e)}
                     })
-        
-        # Only generate audio if the LLM explicitly calls the generate_audio tool
-        # No TTS fallback - the LLM must use the generate_audio tool for audio output
+            
+            # If audio was generated, stop the agent loop immediately to return response to user
+            if audio_generated:
+                break
+
+            # If tools ran and produced new context (e.g., visual analysis), ask LLM again
+            if new_tool_activity:
+                if self.logger:
+                    self.logger.log_result("🤖 agent", {
+                        "action": "follow_up_llm_call",
+                        "content": "Continuing with LLM after tool execution",
+                        "iteration": iteration
+                    })
+                current_response = self._get_llm_response(current_messages)
+                # Update stored response text
+                if current_response.get("content"):
+                    self.last_response_text = current_response.get("content", "")
+                continue
+            else:
+                break
         
         return {
             "success": True,
             "audio_path": audio_path,
             "transcription": session_context.get("last_transcription", ""),
-            "response_text": getattr(self, 'last_response_text', response.get("content", "")),
+            "response_text": getattr(self, 'last_response_text', current_response.get("content", "")),
             "tool_results": results
         }
     

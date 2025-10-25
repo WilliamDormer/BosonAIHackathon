@@ -5,9 +5,9 @@ Large Language Model support.
 import os
 import json
 import time
-import yaml
+import yaml  # type: ignore
 import openai
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 
 class LLM:
 
@@ -120,13 +120,13 @@ class LLM:
             try:
                 response = self.client.chat.completions.create(
                     model=self.name,
-                    messages=assembled_payloads,
+                    messages=assembled_payloads,  # type: ignore
                     max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=self.default_top_p
                 )
                 
-                content = response.choices[0].message.content
+                content = response.choices[0].message.content or ""  # Handle None content
                 
                 # Validate JSON if required
                 if validate_json:
@@ -166,13 +166,24 @@ class LLM:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         validate_json: bool = False,
-        verbose: bool = False
-        ) -> str:
+        verbose: bool = False,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None
+        ) -> Union[str, Any]:  # Returns str without tools, message object with tools
         """
         Call the LLM with retry logic and optional JSON validation.
         
         Args:
             assembled_payloads: List of messages that has already been assembled
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            validate_json: If True, validates response is valid JSON
+            verbose: Enable debug output
+            tools: List of available tools for function calling (OpenAI format)
+            tool_choice: Control tool calling behavior ("auto", "none", or {"type": "function", "function": {"name": "my_function"}})
+        
+        Returns:
+            Either the message content string (if no tools) or the full response object (if tools used)
         """
         
         # Use config defaults if not specified
@@ -185,16 +196,37 @@ class LLM:
         
         for attempt in range(self.max_retries):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.name,
-                    messages=assembled_payloads,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=self.default_top_p
-                )
+                # Build API call parameters
+                api_params = {
+                    "model": self.name,
+                    "messages": assembled_payloads,  # type: ignore
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "top_p": self.default_top_p
+                }
                 
-                content = response.choices[0].message.content
+                # Add tools if provided
+                if tools:
+                    api_params["tools"] = tools
+                    if tool_choice:
+                        api_params["tool_choice"] = tool_choice
                 
+                response = self.client.chat.completions.create(**api_params)
+                
+                # Get the message from the response
+                message = response.choices[0].message
+                content = message.content or ""  # Handle None content
+                
+                # If tools were provided, return the full message object (includes tool_calls)
+                if tools:
+                    if verbose:
+                        print(f"[DEBUG] Model: {self.name}")
+                        print(f"[DEBUG] Attempt: {attempt + 1}")
+                        print(f"[DEBUG] Content: {content}")
+                        print(f"[DEBUG] Tool calls: {message.tool_calls}")
+                    return message  # Return full message object with tool_calls
+                
+                # Otherwise validate and return content as string
                 # Validate JSON if required
                 if validate_json:
                     if not self._validate_json_response(content):

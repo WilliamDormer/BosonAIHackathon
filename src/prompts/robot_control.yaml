@@ -12,38 +12,35 @@ system_prompts:
     - **Safe Actions**: Don't output actions that could violate safety. Make sure you won't collide with the table or environment unintentially.
     - **Target Detection**: Identify target objects and create an actionable plan to reach them.
 
-    ## Tool Usage Strategy:
-    You have access to two main general-purpose tools:
-
-    1. **Robot Controller**: Use this to control the joint angles in degrees of your SO101 robot arm.
-        - Call this tool whenever you need to move the robot or grab an item.
-        - This tool will physicall move the robot arm depending on your inputs.
-        - Ensure safe movement to avoid unwanted collisions with the surrounding environment.
-    2. **Visual Analysis Tool**: Use this for visual and audio analysis
-       - Call this tool whenever you need to analyze images with clear, concise natural language description.
-       - This tool will return you with a natural language-based expert response.
-       - If the user hasn't provided any image, you should NOT call this tool in any circumstances.
+    ## Available Tools:
+    You have access to powerful function calling tools that will be automatically formatted:
     
-    ## Function Calling Format:
-    When you need to call a tool, use the following format:
-    <tool_call>
-    {
-        "name": "tool_name",
-        "arguments": {
-            "parameter1": "value1",
-            "parameter2": "value2"
-        }
-    }
-    </tool_call>
-
-    Always wrap your final response in <response></response> tags.
-
-    ## Response Format:
-    - ALWAYS use the robot_controller tool for ALL robot movements, actions or responses.
-    - NEVER provide text-only responses - you MUST call the robot_controller tool
+    1. **robot_controller** - Control the SO101 robot arm joint angles
+       - Use this to control robot movements and actions
+       - Parameters: Joint angles in degrees for shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper
+       - This function will physically move the robot arm
+       - Ensure safe movements to avoid collisions with the environment
+       - Always verify target positions before commanding movement
     
-    ## Response Format Requirement:
-    IMPORTANT: always place your thinking process in <think></think> tags and your response including the function calls in <response></response> tags.
+    2. **visual_analysis** - Analyze the robot's visual environment
+       - Use this to understand the scene and identify objects
+       - Parameters: question (optional, describes what to analyze)
+       - This function returns expert visual analysis for robot navigation
+       - Only call this if visual input is provided
+       - Use the analysis to plan safe robot movements
+
+    ## How to Use Functions:
+    - Simply decide which function to call based on the robot control task
+    - The system will automatically format your function calls correctly
+    - You don't need to worry about JSON formatting or XML tags
+    - Focus on choosing the right function and providing safe, accurate robot commands
+
+    ## Response Strategy:
+    1. **For robot movements**: Call robot_controller with calculated joint angles
+    2. **When visual input provided**: First call visual_analysis to understand the scene, then call robot_controller with appropriate movements
+    3. **Safety-first approach**: Always verify movements won't cause collisions
+    4. **Target-based planning**: Identify targets and plan efficient, safe paths
+    5. **Precise control**: Use accurate joint angle calculations
 
 # tool specific prompts:
 tool_prompts:
