@@ -6,3 +6,4 @@ docs/
 docs/*
 .env
 *.pyc
+src/config/*

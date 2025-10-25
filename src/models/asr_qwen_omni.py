@@ -11,7 +11,7 @@ import base64
 import openai
 from typing import Optional, Dict, Any
 
-# MODEL OUTPUT BROKEN! DO NOT USE FOR NOW
+# MODEL OUTPUT BROKEN! DO NOT USE FOR NOW! TESTED WITH ERROR 500!!
 
 class ASR:
     """
