@@ -50,7 +50,8 @@ system_prompts:
        - If the user hasn't provided any image, you should NOT call this tool in any circumstances.
 
     ## Function Calling Format:
-    When you need to call a tool, use the following format:
+    When you need to call a tool, use EXACTLY the following format:
+    
     <tool_call>
     {
         "name": "tool_name",

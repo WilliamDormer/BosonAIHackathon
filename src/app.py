@@ -120,18 +120,7 @@ class VoiceSightApp:
                         value="Ready to start. Click 'Start Session' to begin."
                     )
             
-            # Chat interface
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### 💬 Conversation History")
-                    gr.Markdown("*Text transcript of the conversation*")
-                    chatbot = gr.Chatbot(
-                        value=[],
-                        type="messages",
-                        label="Chat History",
-                        height=400,
-                        show_label=False
-                    )
+            # Removed conversation history - just show execution log
             
             # Execution log
             with gr.Row():
@@ -150,7 +139,6 @@ class VoiceSightApp:
                 'image_input': image_input,
                 'audio_output': audio_output,
                 'status_display': status_display,
-                'chatbot': chatbot,
                 'execution_log': execution_log,
                 'prompt_dropdown': prompt_dropdown
             }
@@ -159,19 +147,19 @@ class VoiceSightApp:
             start_btn.click(
                 fn=self.start_session,
                 inputs=[prompt_dropdown],
-                outputs=[status_display, chatbot, execution_log]
+                outputs=[status_display, execution_log]
             )
             
             reset_btn.click(
                 fn=self.reset_session,
                 inputs=[],
-                outputs=[audio_output, status_display, chatbot, execution_log]
+                outputs=[audio_output, status_display, execution_log]
             )
             
             answer_btn.click(
                 fn=self.process_input,
                 inputs=[audio_input, image_input, prompt_dropdown],
-                outputs=[audio_output, status_display, chatbot, execution_log]
+                outputs=[audio_output, status_display, execution_log]
             )
         
         return demo
@@ -215,20 +203,20 @@ class VoiceSightApp:
                 )
                 
                 status = "✅ Session started! Agent is ready to help."
-                chatbot_history = [{"role": "assistant", "content": greeting_result["text"]}]
+                # Removed chatbot history
                 log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session started (ID: {self.current_session.session_id})\n"
                 log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Greeting generated\n"
                 
-                return status, chatbot_history, log_entry
+                return status, log_entry
             else:
                 error_msg = f"❌ Failed to start session: {greeting_result.get('error', 'Unknown error')}"
                 log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {greeting_result.get('error', 'Unknown error')}\n"
-                return error_msg, [], log_entry
+                return error_msg, log_entry
                 
         except Exception as e:
             error_msg = f"❌ Error starting session: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return error_msg, [], log_entry
+            return error_msg, log_entry
     
     def reset_session(self):
         """Reset the current session."""
@@ -246,23 +234,22 @@ class VoiceSightApp:
             self.current_session = None
             
             status = "🔄 Session reset. Click 'Start Session' to begin a new conversation."
-            chatbot_history = []
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session reset\n"
             
-            return None, status, chatbot_history, log_entry
+            return None, status, log_entry
             
         except Exception as e:
             error_msg = f"❌ Error resetting session: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return None, error_msg, [], log_entry
+            return None, error_msg, log_entry
     
     def process_input(self, audio_input: str, image_input: str, prompt_system: str):
         """Process user input (audio and/or image) and generate response."""
         if not audio_input and not image_input:
-            return None, "❌ Please provide audio or image input.", [], "No input provided."
+            return None, "❌ Please provide audio or image input.", "No input provided."
         
         if not self.current_session:
-            return None, "❌ Please start a session first.", [], "No active session."
+            return None, "❌ Please start a session first.", "No active session."
         
         # Check if prompt system has changed and restart session if needed
         if hasattr(self, 'current_prompt_system') and self.current_prompt_system != prompt_system:
@@ -288,7 +275,7 @@ class VoiceSightApp:
         except Exception as e:
             error_msg = f"❌ Error processing input: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return None, error_msg, self._get_chatbot_history(), log_entry
+            return None, error_msg, log_entry
     
     def _process_audio_only(self, audio_input: str):
         """Process audio input only."""
@@ -312,40 +299,48 @@ class VoiceSightApp:
                 )
             
             # Add agent response to session
-            if result.get("audio_path") and self.current_session:
+            if self.current_session:
                 response_text = result.get("response_text", "")
-                self.current_session.add_message(
-                    role="assistant",
-                    content=response_text,
-                    metadata={"audio_path": result["audio_path"]}
-                )
+                if response_text:  # Add response text if available
+                    metadata = {}
+                    if result.get("audio_path"):
+                        metadata["audio_path"] = result["audio_path"]
+                    
+                    self.current_session.add_message(
+                        role="assistant",
+                        content=response_text,
+                        metadata=metadata
+                    )
             
-            # Update chatbot history
-            chatbot_history = self._get_chatbot_history()
+            # Removed chatbot history
             
             # Update status
             status = "✅ Audio processed successfully!"
             
             # Update execution log with actual console outputs
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Audio processed\n"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Audio processed successfully\n"
             if transcription:
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Transcription: '{transcription}'\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 📝 Transcription: '{transcription}'\n"
             else:
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] No transcription available\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No transcription available\n"
             
             response_text = result.get("response_text", "")
             if response_text:
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Agent response: '{response_text}'\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 Agent response: '{response_text}'\n"
             else:
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] No response text available\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No response text available\n"
             
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio generated: {result.get('audio_path', 'None')}\n"
+            audio_path = result.get("audio_path", "None")
+            if audio_path and audio_path != "None":
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🔊 Audio generated: {audio_path}\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ❌ No audio generated\n"
             
-            return result.get("audio_path"), status, chatbot_history, log_entry
+            return result.get("audio_path"), status, log_entry
         else:
             error_msg = f"❌ Processing failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, self._get_chatbot_history(), log_entry
+            return None, error_msg, log_entry
     
     def _process_image_only(self, image_input: str):
         """Process image input only."""
@@ -368,35 +363,43 @@ class VoiceSightApp:
                 )
             
             # Add agent response to session
-            if result.get("audio_path") and self.current_session:
+            if self.current_session:
                 response_text = result.get("response_text", "")
-                self.current_session.add_message(
-                    role="assistant",
-                    content=response_text,
-                    metadata={"audio_path": result["audio_path"]}
-                )
+                if response_text:  # Add response text if available
+                    metadata = {}
+                    if result.get("audio_path"):
+                        metadata["audio_path"] = result["audio_path"]
+                    
+                    self.current_session.add_message(
+                        role="assistant",
+                        content=response_text,
+                        metadata=metadata
+                    )
             
-            # Update chatbot history
-            chatbot_history = self._get_chatbot_history()
+            # Removed chatbot history
             
             # Update status
             status = "✅ Image analyzed successfully!"
             
             # Update execution log with actual console outputs
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Image processed\n"
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Image processed successfully\n"
             response_text = result.get("response_text", "")
             if response_text:
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Agent response: '{response_text}'\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 Agent response: '{response_text}'\n"
             else:
-                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] No response text available\n"
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No response text available\n"
             
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio generated: {result.get('audio_path', 'None')}\n"
+            audio_path = result.get("audio_path", "None")
+            if audio_path and audio_path != "None":
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🔊 Audio generated: {audio_path}\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ❌ No audio generated\n"
             
-            return result.get("audio_path"), status, chatbot_history, log_entry
+            return result.get("audio_path"), status, log_entry
         else:
             error_msg = f"❌ Image analysis failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, self._get_chatbot_history(), log_entry
+            return None, error_msg, log_entry
     
     def _process_audio_and_image(self, audio_input: str, image_input: str):
         """Process both audio and image inputs."""
@@ -427,16 +430,20 @@ class VoiceSightApp:
                 )
             
             # Add agent response to session
-            if result.get("audio_path") and self.current_session:
+            if self.current_session:
                 response_text = result.get("response_text", "")
-                self.current_session.add_message(
-                    role="assistant",
-                    content=response_text,
-                    metadata={"audio_path": result["audio_path"]}
-                )
+                if response_text:  # Add response text if available
+                    metadata = {}
+                    if result.get("audio_path"):
+                        metadata["audio_path"] = result["audio_path"]
+                    
+                    self.current_session.add_message(
+                        role="assistant",
+                        content=response_text,
+                        metadata=metadata
+                    )
             
-            # Update chatbot history
-            chatbot_history = self._get_chatbot_history()
+            # Removed chatbot history
             
             # Update status
             status = "✅ Audio and image processed successfully!"
@@ -456,42 +463,15 @@ class VoiceSightApp:
             
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio generated: {result.get('audio_path', 'None')}\n"
             
-            return result.get("audio_path"), status, chatbot_history, log_entry
+            return result.get("audio_path"), status, log_entry
         else:
             error_msg = f"❌ Multimodal processing failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, self._get_chatbot_history(), log_entry
+            return None, error_msg, log_entry
     
     
     
-    def _get_chatbot_history(self) -> list:
-        """Get conversation history in chatbot format."""
-        if not self.current_session:
-            return []
-        
-        conversation_history = self.current_session.get_conversation_context()
-        if not conversation_history:
-            return []
-        
-        chatbot_messages = []
-        for message in conversation_history:
-            role = message["role"]
-            content = message["content"]
-            metadata = message.get("metadata", {})
-            
-            # Create message dict for chatbot
-            message_dict = {
-                "role": role,
-                "content": content
-            }
-            
-            # For now, just show text content in chatbot
-            # Media files are handled by separate audio output component
-            # This avoids the validation error with tuple format
-            
-            chatbot_messages.append(message_dict)
-        
-        return chatbot_messages
+    # Removed _get_chatbot_history method - no longer needed
     
     def launch(self, **kwargs):
         """Launch the Gradio interface."""
