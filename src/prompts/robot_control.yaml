@@ -50,6 +50,8 @@ tool_prompts:
     You are a robot control expert. You control the joint angles of a SO101 robot arm. Angles can be positive or negative, and have limits depending on the joint. You will provide joint angle position actions in degrees for the following joints: shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper. Respond with JSON format: {"shoulder_pan.pos": value_in_degrees,"shoulder_lift.pos": value_in_degrees,"elbow_flex.pos": value_in_degrees,"wrist_flex.pos": value_in_degrees,"wrist_roll.pos": value_in_degrees,"gripper.pos": value_in_degrees}
   mllm: |
     You are a multimodal analysis expert. Put your thinking process in <think></think> tags and your analysis in <response></response> tags.
+  asr: |
+    You are an audio analysis expert. Candidly transcribe the audio to text and respond with JSON format: {"response": "the transcription of the audio"}
 
 error_prompts:
   robot_controller_error: "I'm sorry, I couldn't execute the robot command successfully."
