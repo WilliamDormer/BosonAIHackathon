@@ -18,15 +18,13 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
     
-# sys.path.append("/Users/tomlu/Documents/GitHub/BosonAIHackathon/src/utils")
-
 from utils.voice_sight.agent import VoiceSightAgent  # type: ignore
 from utils.voice_sight.session import VoiceSightSession  # type: ignore
 from utils.logger import RunLogger, create_logger  # type: ignore
 
 
 class VoiceSightApp:
-    """Main application class for Voice Sight audio agentic pipeline."""
+    """Main application class for Voice Sight audio Agentic pipeline."""
     
     def __init__(self, api_key: Optional[str] = None, runs_dir: str = "runs"):
         """Initialize the application."""
@@ -248,18 +246,11 @@ class VoiceSightApp:
     
     def _process_audio_only(self, audio_input: str):
         """Process audio input only."""
-        # Log audio processing
-        if self.current_logger:
-            self.current_logger.log_step("audio_processing", {
-                "audio_file": os.path.basename(audio_input),
-                "timestamp": datetime.now().isoformat()
-            })
-        
         # Process audio with agent
         if not self.agent:
             return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
         
-        result = self.agent.process_audio_input(audio_input, {
+        result = self.agent.process_input(audio_input, "", {
             "conversation_history": self.current_session.get_conversation_context(),
             "last_transcription": ""
         })
@@ -294,14 +285,6 @@ class VoiceSightApp:
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Transcription: '{transcription}'\n"
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
             
-            # Log results
-            if self.current_logger:
-                self.current_logger.log_result("audio_processing_complete", {
-                    "transcription": transcription,
-                    "response_text": result.get("response_text", ""),
-                    "audio_path": result.get("audio_path", ""),
-                    "success": True
-                })
             
             return result.get("audio_path"), status, conversation, log_entry
         else:
@@ -311,15 +294,14 @@ class VoiceSightApp:
     
     def _process_image_only(self, image_input: str):
         """Process image input only."""
-        # Log image processing
-        if self.current_logger:
-            self.current_logger.log_step("image_processing", {
-                "image_file": os.path.basename(image_input),
-                "timestamp": datetime.now().isoformat()
-            })
+        # Process image with agent
+        if not self.agent:
+            return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
         
-        # Process image with agent using analyze_image tool
-        result = self._process_image_with_agent(image_input)
+        result = self.agent.process_input("", image_input, {
+            "conversation_history": self.current_session.get_conversation_context(),
+            "last_transcription": ""
+        })
         
         if result["success"]:
             # Add user message to session
@@ -350,15 +332,6 @@ class VoiceSightApp:
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Analysis: {result.get('analysis', '')}\n"
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
             
-            # Log results
-            if self.current_logger:
-                self.current_logger.log_result("image_processing_complete", {
-                    "image_path": image_input,
-                    "analysis": result.get("analysis", ""),
-                    "response_text": result.get("response_text", ""),
-                    "audio_path": result.get("audio_path", ""),
-                    "success": True
-                })
             
             return result.get("audio_path"), status, conversation, log_entry
         else:
@@ -368,34 +341,18 @@ class VoiceSightApp:
     
     def _process_audio_and_image(self, audio_input: str, image_input: str):
         """Process both audio and image inputs."""
-        # Log multimodal processing
-        if self.current_logger:
-            self.current_logger.log_step("multimodal_processing", {
-                "audio_file": os.path.basename(audio_input),
-                "image_file": os.path.basename(image_input),
-                "timestamp": datetime.now().isoformat()
-            })
-        
-        # First process the audio to get transcription
+        # Process both audio and image with agent
         if not self.agent:
             return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
         
-        audio_result = self.agent.process_audio_input(audio_input, {
+        result = self.agent.process_input(audio_input, image_input, {
             "conversation_history": self.current_session.get_conversation_context(),
             "last_transcription": ""
         })
         
-        if not audio_result["success"]:
-            error_msg = f"❌ Audio processing failed: {audio_result.get('error', 'Unknown error')}"
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {audio_result.get('error', 'Unknown error')}\n"
-            return None, error_msg, self._format_conversation_log(), log_entry
-        
-        # Then process the image with the audio context
-        transcription = audio_result.get("transcription", "")
-        result = self._process_image_with_agent(image_input, transcription)
-        
         if result["success"]:
             # Add user message to session
+            transcription = result.get("transcription", "")
             self.current_session.add_message(
                 role="user",
                 content=f"Audio: {transcription} | Image: {image_input}",
@@ -423,16 +380,6 @@ class VoiceSightApp:
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Image analysis: {result.get('analysis', '')}\n"
             log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
             
-            # Log results
-            if self.current_logger:
-                self.current_logger.log_result("multimodal_processing_complete", {
-                    "transcription": transcription,
-                    "image_path": image_input,
-                    "analysis": result.get("analysis", ""),
-                    "response_text": result.get("response_text", ""),
-                    "audio_path": result.get("audio_path", ""),
-                    "success": True
-                })
             
             return result.get("audio_path"), status, conversation, log_entry
         else:
@@ -441,59 +388,6 @@ class VoiceSightApp:
             return None, error_msg, self._format_conversation_log(), log_entry
     
     
-    def _process_image_with_agent(self, image_path: str, transcription: str = "") -> Dict[str, Any]:
-        """Process image using the agent's image analysis tools."""
-        try:
-            # Create a conversation context for image analysis
-            if not self.agent:
-                return {
-                    "success": False,
-                    "error": "Agent not initialized",
-                    "audio_path": None,
-                    "analysis": None,
-                    "response_text": None
-                }
-            
-            messages = [
-                {"role": "system", "content": self.agent.system_prompt}
-            ]
-            
-            # Add session context
-            if self.current_session:
-                conversation_history = self.current_session.get_conversation_context()
-                messages.extend(conversation_history[-3:])  # Last 3 messages
-            
-            # Add image analysis request with optional audio context
-            if transcription:
-                messages.append({
-                    "role": "user",
-                    "content": f"User said: '{transcription}'. Please analyze this image for safety and navigation assistance: {image_path}"
-                })
-            else:
-                messages.append({
-                    "role": "user",
-                    "content": f"Please analyze this image for safety and navigation assistance: {image_path}"
-                })
-            
-            # Get LLM response with tool calls
-            response = self.agent._get_llm_response(messages)
-            
-            # Execute tool calls
-            result = self.agent._execute_tool_calls(response, {
-                "conversation_history": self.current_session.get_conversation_context() if self.current_session else [],
-                "image_path": image_path
-            })
-            
-            return result
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "audio_path": None,
-                "analysis": None,
-                "response_text": None
-            }
     
     def _format_conversation_log(self) -> str:
         """Format conversation history for display."""
