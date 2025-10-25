@@ -2,9 +2,11 @@
 
 TODO:
 
-- [x] Build translation demo with interactive audio response
-- [ ] Build vision exploration demo with interactive audio response
-- [ ] Investigate into how to make accoustic interactions "streaming-like"
+- [x] Build general-purpose agent pipeline
+- [ ] Integrate comprehensive logging
+- [ ] Fix Gradio UI
+- [ ] Refine prompts and tool-calling logics
+- [ ] Make audio interaction more natural and full of emotion
 - [ ] Implement audio-driven robot arm manipulation demo
 - [ ] Code refactoring and README writing
 
