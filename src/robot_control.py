@@ -2,6 +2,8 @@ import ast
 from typing import Union
 import lerobot
 import time
+import concurrent.futures
+
 from lerobot.robots.so101_follower import SO101Follower, SO101FollowerConfig
 class RobotWrapper:
     def __init__(self):
@@ -25,6 +27,8 @@ class RobotWrapper:
         )
 
         self.robot = SO101Follower(config=config)
+        print("about to call robot.connect")
+        # if connection stalls, see if it's plugged in.
         self.robot.connect()
 
         # setup the robot instance 
@@ -70,12 +74,14 @@ class RobotWrapper:
 if __name__ == "__main__":
     # test logic for the class.
 
-    sample_text = "{'shoulder_pan.pos': -45.0,'shoulder_lift.pos': 30.0,'elbow_flex.pos': -10.0,'wrist_flex.pos': 5.0,'wrist_roll.pos': 0.0,'gripper.pos': 100}"
+    # sample_text = "{'shoulder_pan.pos': -45.0,'shoulder_lift.pos': 20.0,'elbow_flex.pos': -10.0,'wrist_flex.pos': 5.0,'wrist_roll.pos': 0.0,'gripper.pos': 100}"
+    sample_text = "{'shoulder_pan.pos': 0.0,'shoulder_lift.pos': 0.0,'elbow_flex.pos': -90.0,'wrist_flex.pos': -180.0,'wrist_roll.pos': 0.0,'gripper.pos': 100}"
+
 
     # Calibration saved to /Users/williamdormer/.cache/huggingface/lerobot/calibration/robots/so101_follower/None.json
 
     robot = RobotWrapper()
 
-    for i in range(10):
+    for i in range(30):
         robot(sample_text)
-        time.sleep(0.5)
+        time.sleep(0.1)
