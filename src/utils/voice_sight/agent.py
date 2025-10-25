@@ -185,7 +185,17 @@ class VoiceSightAgent:
             if not test_mode:
                 # Step 1: Transcribe the audio
                 if audio_path:
+                    if self.logger:
+                        self.logger.log_result("🎤 ASR", {
+                            "action": "audio_transcription_start",
+                            "content": "Starting audio transcription"
+                        })
                     transcription = self._transcribe_audio(audio_path)
+                    if self.logger:
+                        self.logger.log_result("🎤 ASR", {
+                            "action": "audio_transcription_complete",
+                            "content": f"Transcription: '{transcription}'"
+                        })
                 else:
                     transcription = ""
             else:
@@ -291,8 +301,8 @@ class VoiceSightAgent:
                 "content": result["response_text"]
             })
     
-    def _get_llm_response(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Get response from LLM with tool calling."""
+    def _get_llm_response(self, messages: List[Dict[str, Any]], max_retries: int = 3) -> Dict[str, Any]:
+        """Get response from LLM with tool calling and error handling."""
         try:
             if self.logger:
                 self.logger.log_step("llm_processing", {
@@ -308,14 +318,55 @@ class VoiceSightAgent:
                     "content": f"Available tools: {json.dumps(self.tools, indent=2)}"
                 })
             
-            # Use the LLM.chat_completion method
-            response = self.llm.chat_completion(
-                assembled_payloads=messages_with_tools,
-                validate_json=True
-            )
-            
-            # Parse response and extract content and tool calls
-            response_text, tool_calls = self._parse_llm_response(response)
+            # Try with different temperatures if no tool calls are generated
+            for attempt in range(max_retries):
+                # Use temperature != 0.0 for better function calling
+                temperature = 0.7 if attempt == 0 else 0.9  # Start with 0.7, increase to 0.9 on retries
+                
+                if self.logger and attempt > 0:
+                    self.logger.log_result("🤖 agent", {
+                        "action": "llm_retry",
+                        "content": f"Retrying LLM call (attempt {attempt + 1}/{max_retries})",
+                        "temperature": temperature
+                    })
+                
+                # Use the LLM.chat_completion method with temperature
+                response = self.llm.chat_completion(
+                    assembled_payloads=messages_with_tools,
+                    validate_json=True,
+                    temperature=temperature
+                )
+                
+                # Parse response and extract content and tool calls
+                response_text, tool_calls = self._parse_llm_response(response)
+                
+                # Check if we have at least 1 function call
+                if tool_calls and len(tool_calls) > 0:
+                    # Success - we have tool calls
+                    if self.logger:
+                        self.logger.log_result("🤖 agent", {
+                            "action": "llm_success",
+                            "content": f"LLM generated {len(tool_calls)} tool calls on attempt {attempt + 1}",
+                            "temperature": temperature
+                        })
+                    break
+                elif attempt < max_retries - 1:
+                    # No tool calls, but we can retry
+                    if self.logger:
+                        self.logger.log_result("🤖 agent", {
+                            "action": "llm_no_tool_calls",
+                            "content": f"No tool calls generated, retrying with temperature {temperature}",
+                            "attempt": attempt + 1
+                        })
+                    continue
+                else:
+                    # Final attempt failed
+                    if self.logger:
+                        self.logger.log_result("🤖 agent", {
+                            "action": "llm_no_tool_calls_final",
+                            "content": f"No tool calls generated after {max_retries} attempts",
+                            "temperature": temperature
+                        })
             
             # Store the clean response text for later use
             self.last_response_text = response_text
@@ -360,12 +411,32 @@ class VoiceSightAgent:
                 try:
                     # Parse tool call JSON
                     tool_call_data = json.loads(tool_call_text.strip())
-                    tool_calls.append({
-                        "function": {
-                            "name": tool_call_data.get("name"),
-                            "arguments": json.dumps(tool_call_data.get("arguments", {}))
-                        }
-                    })
+                    
+                    # Handle both formats:
+                    # Format 1: {"name": "tool_name", "arguments": {...}}
+                    # Format 2: {"function_call": {"name": "tool_name", "parameters": {...}}}
+                    
+                    if "function_call" in tool_call_data:
+                        # Format 2: function_call wrapper
+                        function_call = tool_call_data["function_call"]
+                        tool_calls.append({
+                            "function": {
+                                "name": function_call.get("name"),
+                                "arguments": json.dumps(function_call.get("parameters", {}))
+                            }
+                        })
+                    elif "name" in tool_call_data:
+                        # Format 1: direct format
+                        tool_calls.append({
+                            "function": {
+                                "name": tool_call_data.get("name"),
+                                "arguments": json.dumps(tool_call_data.get("arguments", {}))
+                            }
+                        })
+                    else:
+                        print(f"[LLM] Unknown tool call format: {tool_call_text}")
+                        continue
+                        
                 except (json.JSONDecodeError, KeyError) as e:
                     print(f"[LLM] Error parsing tool call: {tool_call_text}, error: {e}")
                     continue
