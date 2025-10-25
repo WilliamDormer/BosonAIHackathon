@@ -1,0 +1,64 @@
+# Configuration for Audio-Based Agentic Pipeline
+
+# Retry Configuration
+retry:
+  max_retries: 5
+  initial_delay: 0.5  # seconds
+  backoff_multiplier: 1.5  # exponential backoff
+  max_delay: 5.0  # maximum delay between retries
+
+# LLM Configuration
+llm:
+  thinking:
+    model: "Qwen3-32B-thinking-Hackathon"
+    max_tokens: 4096
+    temperature: 0.2
+    top_p: 0.95
+  
+  non_thinking:
+    model: "Qwen3-32B-non-thinking-Hackathon"
+    max_tokens: 4096
+    temperature: 0.2
+    top_p: 0.95
+
+# ASR (Audio Understanding) Configuration
+asr:
+  model: "higgs-audio-understanding-Hackathon"
+  max_completion_tokens: 4096
+  temperature: 0.0
+  top_p: 1.0
+
+# TTS (Text-to-Speech) Configuration
+tts:
+  model: "higgs-audio-generation-Hackathon"
+  
+  # Simple TTS settings
+  simple:
+    response_format: "pcm"
+    sample_rate: 24000
+    num_channels: 1
+    sample_width: 2
+  
+  # Voice cloning settings
+  cloning:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 50
+    max_completion_tokens: 4096
+    stop_sequences:
+      - "<|eot_id|>"
+      - "<|end_of_text|>"
+      - "<|audio_eos|>"
+
+# API Configuration
+api:
+  base_url: "https://hackathon.boson.ai/v1"
+  timeout: 60  # seconds
+  
+# Logging Configuration
+logging:
+  enabled: true
+  base_dir: "runs"
+  save_audio_copies: true
+  verbose: false
+
