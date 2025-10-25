@@ -15,6 +15,7 @@ from models.llm import LLM  # type: ignore
 from models.asr import ASR  # type: ignore
 from models.tts import TTS  # type: ignore
 from models.mllm import MLLM  # type: ignore
+from robot_control import RobotWrapper
 
 # Import utilities
 from utils.helpers import (  # type: ignore
@@ -37,6 +38,12 @@ class VoiceSightAgent:
         """
         self.api_key = api_key or os.getenv("BOSON_API_KEY")
         self.logger = logger
+
+        self.use_robot = True #TODO add an argument for this.
+
+        if self.use_robot:
+            # initialize the RobotWrapper (create connection to the device)
+            self.robot = RobotWrapper()
         
         # Load prompts
         self.prompts = self._load_prompts()
@@ -400,6 +407,9 @@ class VoiceSightAgent:
                             "function_name": "visual_analysis",
                             "result": result
                         })
+                    elif function_name == "robot_controller":
+                        # Execute the robot controller action.
+                        result = self._execute_robot_controller(arguments)
                     else:
                         result = {"error": f"Unknown function: {function_name}"}
                         results.append({
@@ -469,6 +479,25 @@ class VoiceSightAgent:
                 self.logger.log_error("audio_generation_failed", str(e))
             return {"success": False, "error": str(e)}
     
+    def _execute_robot_controller(self, arguments: Dict[str, Any]) -> None:
+        '''
+        Execute Robot Controller actions.
+        '''
+
+        try: 
+            text = arguments.get("text", "")
+
+            # try passing the text to the robot controller.
+            self.robot(text)
+
+            # TODO should this return something? 
+        except Exception as e: 
+            if self.logger:
+                self.logger.log_error("robot_controller_failed", str(e))
+            # TODO should I return something here?
+            
+            
+
     def _execute_visual_analysis(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute visual analysis for images."""
         try:

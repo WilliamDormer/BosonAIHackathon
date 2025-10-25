@@ -27,8 +27,6 @@ class RobotWrapper:
         self.robot = SO101Follower(config=config)
         self.robot.connect()
 
-        input("connection successful. Press enter to continue.")
-
         # setup the robot instance 
 
     def __call__(self, text):
