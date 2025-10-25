@@ -1,5 +1,13 @@
 <h1 align="center">2025 BosonAI Hackathon</h1>
 
+TODO:
+
+- [x] Build translation demo with interactive audio response
+- [ ] Build vision exploration demo with interactive audio response
+- [ ] Investigate into how to make accoustic interactions "streaming-like"
+- [ ] Implement audio-driven robot arm manipulation demo
+- [ ] Code refactoring and README writing
+
 <p align="center">
   Making communication with AI as easy, natural and fun as talking to a human
 </p>

@@ -5,3 +5,4 @@ runs/*
 docs/
 docs/*
 .env
+*.pyc
