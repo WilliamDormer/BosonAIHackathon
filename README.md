@@ -4,6 +4,14 @@
   Making communication with AI as easy, natural and fun as talking to a human
 </p>
 
+# Setting up environment
+``mamba create -n -y boson python=3.10``  
+``mamba activate boson``  
+``pip install -r requirements.txt``  
+``cd src/lerobot pip install -e .``
+
+
+
 # Api_doc
 Check the api_doc for the detailed usage of our APIs.
 
