@@ -6,7 +6,7 @@ source .venv/bin/activate
 echo "--------------------------------"
 echo "🚀 Running the Main Application"
 echo "--------------------------------"
-echo "Check the Gradio interface at http://localhost:7860"
+echo "Check the Gradio interface at http://localhost:7861"
 echo "--------------------------------"
 
 api_key="bai-CeNIcRcYQqe50mhRO9vlnJvdImMRXfBQIkeMKovGGR9fa4Ke"
