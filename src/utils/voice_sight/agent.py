@@ -89,7 +89,7 @@ class VoiceSightAgent:
                             "type": "string",
                             "description": "Voice to use for generation",
                             "enum": ["belinda", "broom_salesman", "chadwick", "en_man", "en_woman", "mabel", "vex", "zh_man_sichuan"],
-                            "default": "en_woman"
+                            "default": "belinda"
                         },
                     },
                     "required": ["text"]
@@ -499,7 +499,7 @@ class VoiceSightAgent:
         """Execute audio generation."""
         try:
             text = arguments.get("text", "")
-            voice = arguments.get("voice", "en_woman")
+            voice = arguments.get("voice", "belinda")
             
             if self.logger:
                 self.logger.log_step("audio_generation", {
@@ -602,7 +602,7 @@ class VoiceSightAgent:
             
             self.tts.generate_simple(
                 text=greeting_text,
-                voice="en_woman",
+                voice="belindaan",
                 output_path=output_path
             )
             

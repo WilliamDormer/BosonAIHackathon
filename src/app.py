@@ -499,7 +499,7 @@ def main():
     # Create and launch app
     app = VoiceSightApp(api_key=api_key, runs_dir=runs_dir)
     app.launch(
-        server_name="0.0.0.0",
+        server_name="localhost",
         server_port=7861,
         share=False
     )
