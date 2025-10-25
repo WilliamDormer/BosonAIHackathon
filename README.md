@@ -55,6 +55,14 @@ bash run_app.sh
 
 The application will start on `http://localhost:7861` by default.
 
+# Setting up environment
+``mamba create -n -y boson python=3.10``  
+``mamba activate boson``  
+``pip install -r requirements.txt``  
+``cd src/lerobot pip install -e .``
+
+
+
 
 # Api_doc
 Check the api_doc for the detailed usage of our APIs.

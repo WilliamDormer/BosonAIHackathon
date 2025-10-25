@@ -1,3 +1,4 @@
+# requirements for API endpoints.
 openai>=1.0.0
 gradio>=4.0.0
 pyyaml>=6.0.0
@@ -5,3 +6,10 @@ numpy>=2.3.4
 urllib3>=2.5.0
 uvicorn>=0.38.0
 websockets>=15.0.1
+
+# Additional requirement for servo controller
+feetech-servo-sdk==1.0.0
+
+# requirements for lerobot (MAC)
+# NOTE you also need to install lerobot itself in editable mode by cd into lerobot and do `pip install -e .`
+# which will install the majority of the packages.
