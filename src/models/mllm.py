@@ -76,7 +76,7 @@ class MLLM:
         if user_content:
             assembled_payloads.append({
                 "role": "user",
-                "content": user_content
+                "content": user_content  # type: ignore
             })
         
         
