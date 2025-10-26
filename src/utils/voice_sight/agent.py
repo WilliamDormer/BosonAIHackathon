@@ -15,6 +15,7 @@ from models.llm import LLM  # type: ignore
 from models.asr import ASR  # type: ignore
 from models.tts import TTS  # type: ignore
 from models.mllm import MLLM  # type: ignore
+from robot_control import RobotWrapper
 
 # Import utilities
 from utils.helpers import (  # type: ignore
@@ -26,7 +27,7 @@ from utils.helpers import (  # type: ignore
 class VoiceSightAgent:
     """Main agent that orchestrates audio understanding, LLM reasoning, and audio generation for visually-impaired assistance."""
     
-    def __init__(self, api_key: Optional[str] = None, use_thinking: bool = True, logger: Optional[Any] = None):
+    def __init__(self, api_key: Optional[str] = None, use_thinking: bool = True, logger: Optional[Any] = None, prompt_system: str = "voice_sight.yaml"):
         """
         Initialize the Voice Sight agent.
         
@@ -34,9 +35,18 @@ class VoiceSightAgent:
             api_key: API key for Boson AI services
             use_thinking: Whether to use thinking model for better reasoning
             logger: Logger instance for tracking operations
+            prompt_system: Name of the prompt system YAML file to use
         """
         self.api_key = api_key or os.getenv("BOSON_API_KEY")
         self.logger = logger
+
+        self.use_robot = False #TODO add an argument for this.
+
+        if self.use_robot:
+            # initialize the RobotWrapper (create connection to the device)
+            self.robot = RobotWrapper()
+
+        self.prompt_system = prompt_system
         
         # Load prompts
         self.prompts = self._load_prompts()
@@ -51,6 +61,9 @@ class VoiceSightAgent:
         self.has_image = False
         self.current_image_path: Optional[str] = None
         
+        # Agent's own conversation context (separate from Gradio chatbot)
+        self.conversation_context: List[Dict[str, Any]] = []
+        
         # Tool definitions for LLM
         self.tools = self._define_tools()
         
@@ -59,12 +72,12 @@ class VoiceSightAgent:
     
     def _load_prompts(self) -> Dict[str, Any]:
         """Load prompts from YAML file."""
-        prompts_path = os.path.join(os.path.dirname(__file__), "..", "..", "prompts", "voice_sight.yaml")
+        prompts_path = os.path.join(os.path.dirname(__file__), "..", "..", "prompts", self.prompt_system)
         try:
             with open(prompts_path, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f) or {}
         except Exception as e:
-            print(f"[VoiceSight] Warning: Failed to load prompts: {e}. Using defaults.")
+            print(f"[VoiceSight] Warning: Failed to load prompts from {self.prompt_system}: {e}. Using defaults.")
             return {}
     
     def _define_tools(self) -> List[Dict[str, Any]]:
@@ -133,6 +146,10 @@ class VoiceSightAgent:
         
         # Update system prompt to remove image availability
         self.system_prompt = self._get_system_prompt()
+    
+    def clear_conversation_context(self) -> None:
+        """Clear the agent's conversation context."""
+        self.conversation_context = []
         
         if self.logger:
             self.logger.log_step("image_cleared", {
@@ -161,11 +178,24 @@ class VoiceSightAgent:
         Returns:
             Dictionary containing response audio path and metadata
         """
-        try:            
+        try:
+            # Reset visual analysis flag for new input
+            session_context["visual_analysis_done"] = False
+            
             if not test_mode:
                 # Step 1: Transcribe the audio
                 if audio_path:
+                    if self.logger:
+                        self.logger.log_result("🎤 ASR", {
+                            "action": "audio_transcription_start",
+                            "content": "Starting audio transcription"
+                        })
                     transcription = self._transcribe_audio(audio_path)
+                    if self.logger:
+                        self.logger.log_result("🎤 ASR", {
+                            "action": "audio_transcription_complete",
+                            "content": f"Transcription: '{transcription}'"
+                        })
                 else:
                     transcription = ""
             else:
@@ -180,12 +210,18 @@ class VoiceSightAgent:
             # llm has already known there's an image available as self.register_image() add contextual info to system prompt
             messages = self._build_conversation_context(transcription, session_context)
             
+            # Store transcription in session context for later use
+            session_context["last_transcription"] = transcription
+            
             # Step 3: Get LLM response with tool calls
             response = self._get_llm_response(messages)
             
             # Step 4: Execute tool calls with current messages context
             session_context["current_messages"] = messages
             result = self._execute_tool_calls(response, session_context)
+            
+            # Step 5: Update agent's own conversation context
+            self._update_conversation_context(transcription, result)
             
             return result
             
@@ -233,15 +269,15 @@ class VoiceSightAgent:
             print(f"Error transcribing audio: {e}")
             return ""
     
-    def _build_conversation_context(self, transcription: str,session_context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Build conversation context for LLM."""
+    def _build_conversation_context(self, transcription: str, session_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Build conversation context for LLM using agent's own context."""
         messages = [
             {"role": "system", "content": self.system_prompt}
         ]
         
-        # Add session context if available
-        if session_context.get("conversation_history"):
-            messages.extend(session_context["conversation_history"][-5:])  # Last 5 messages
+        # Add agent's own conversation context (last 5 messages)
+        if self.conversation_context:
+            messages.extend(self.conversation_context[-5:])
         
         # Add current user input
         if transcription:
@@ -249,8 +285,24 @@ class VoiceSightAgent:
         
         return messages
     
-    def _get_llm_response(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Get response from LLM with tool calling."""
+    def _update_conversation_context(self, transcription: str, result: Dict[str, Any]) -> None:
+        """Update agent's own conversation context."""
+        # Add user message
+        if transcription:
+            self.conversation_context.append({
+                "role": "user",
+                "content": transcription
+            })
+        
+        # Add assistant response
+        if result.get("success") and result.get("response_text"):
+            self.conversation_context.append({
+                "role": "assistant", 
+                "content": result["response_text"]
+            })
+    
+    def _get_llm_response(self, messages: List[Dict[str, Any]], max_retries: int = 3) -> Dict[str, Any]:
+        """Get response from LLM with tool calling and error handling."""
         try:
             if self.logger:
                 self.logger.log_step("llm_processing", {
@@ -266,14 +318,58 @@ class VoiceSightAgent:
                     "content": f"Available tools: {json.dumps(self.tools, indent=2)}"
                 })
             
-            # Use the LLM.chat_completion method
-            response = self.llm.chat_completion(
-                assembled_payloads=messages_with_tools,
-                validate_json=True
-            )
+            # Try with different temperatures if no tool calls are generated
+            for attempt in range(max_retries):
+                # Use temperature != 0.0 for better function calling
+                temperature = 0.7 if attempt == 0 else 0.9  # Start with 0.7, increase to 0.9 on retries
+                
+                if self.logger and attempt > 0:
+                    self.logger.log_result("🤖 agent", {
+                        "action": "llm_retry",
+                        "content": f"Retrying LLM call (attempt {attempt + 1}/{max_retries})",
+                        "temperature": temperature
+                    })
+                
+                # Use the LLM.chat_completion method with temperature
+                response = self.llm.chat_completion(
+                    assembled_payloads=messages_with_tools,
+                    validate_json=True,
+                    temperature=temperature
+                )
+                
+                # Parse response and extract content and tool calls
+                response_text, tool_calls = self._parse_llm_response(response)
+                
+                # Check if we have at least 1 function call
+                if tool_calls and len(tool_calls) > 0:
+                    # Success - we have tool calls
+                    if self.logger:
+                        self.logger.log_result("🤖 agent", {
+                            "action": "llm_success",
+                            "content": f"LLM generated {len(tool_calls)} tool calls on attempt {attempt + 1}",
+                            "temperature": temperature
+                        })
+                    break
+                elif attempt < max_retries - 1:
+                    # No tool calls, but we can retry
+                    if self.logger:
+                        self.logger.log_result("🤖 agent", {
+                            "action": "llm_no_tool_calls",
+                            "content": f"No tool calls generated, retrying with temperature {temperature}",
+                            "attempt": attempt + 1
+                        })
+                    continue
+                else:
+                    # Final attempt failed
+                    if self.logger:
+                        self.logger.log_result("🤖 agent", {
+                            "action": "llm_no_tool_calls_final",
+                            "content": f"No tool calls generated after {max_retries} attempts",
+                            "temperature": temperature
+                        })
             
-            # Parse response and extract content and tool calls
-            response_text, tool_calls = self._parse_llm_response(response)
+            # Store the clean response text for later use
+            self.last_response_text = response_text
             
             # Log agent response
             if self.logger:
@@ -315,12 +411,32 @@ class VoiceSightAgent:
                 try:
                     # Parse tool call JSON
                     tool_call_data = json.loads(tool_call_text.strip())
-                    tool_calls.append({
-                        "function": {
-                            "name": tool_call_data.get("name"),
-                            "arguments": json.dumps(tool_call_data.get("arguments", {}))
-                        }
-                    })
+                    
+                    # Handle both formats:
+                    # Format 1: {"name": "tool_name", "arguments": {...}}
+                    # Format 2: {"function_call": {"name": "tool_name", "parameters": {...}}}
+                    
+                    if "function_call" in tool_call_data:
+                        # Format 2: function_call wrapper
+                        function_call = tool_call_data["function_call"]
+                        tool_calls.append({
+                            "function": {
+                                "name": function_call.get("name"),
+                                "arguments": json.dumps(function_call.get("parameters", {}))
+                            }
+                        })
+                    elif "name" in tool_call_data:
+                        # Format 1: direct format
+                        tool_calls.append({
+                            "function": {
+                                "name": tool_call_data.get("name"),
+                                "arguments": json.dumps(tool_call_data.get("arguments", {}))
+                            }
+                        })
+                    else:
+                        print(f"[LLM] Unknown tool call format: {tool_call_text}")
+                        continue
+                        
                 except (json.JSONDecodeError, KeyError) as e:
                     print(f"[LLM] Error parsing tool call: {tool_call_text}, error: {e}")
                     continue
@@ -338,6 +454,9 @@ class VoiceSightAgent:
         audio_path = None
         current_messages = session_context.get("current_messages", [])
         
+        # Check if visual analysis has already been performed in this session
+        visual_analysis_done = session_context.get("visual_analysis_done", False)
+        
         # If there are tool calls, execute them
         if tool_calls:
             for tool_call in tool_calls:
@@ -349,14 +468,18 @@ class VoiceSightAgent:
                         result = self._execute_generate_audio(arguments)
                         if result.get("success"):
                             audio_path = result.get("audio_path")
-                    elif function_name == "visual_analysis":
+                    elif function_name == "visual_analysis" and not visual_analysis_done:
                         result = self._execute_visual_analysis(arguments)
                         # If visual analysis succeeds, continue with LLM
                         if result.get("success"):
+                            # Mark visual analysis as done
+                            session_context["visual_analysis_done"] = True
+                            
                             # Add visual analysis result to conversation context
+                            visual_analysis_content = result.get('analysis', '')
                             current_messages.append({
                                 "role": "assistant",
-                                "content": f"Visual analysis result: {result.get('analysis', '')}"
+                                "content": f"Visual analysis result: {visual_analysis_content}"
                             })
                             
                             # Continue with LLM to get audio generation
@@ -400,6 +523,17 @@ class VoiceSightAgent:
                             "function_name": "visual_analysis",
                             "result": result
                         })
+                    elif function_name == "robot_controller":
+                        # Execute the robot controller action.
+                        result = self._execute_robot_controller(arguments)
+                    elif function_name == "visual_analysis" and visual_analysis_done:
+                        # Skip visual analysis if already done
+                        if self.logger:
+                            self.logger.log_result("🤖 agent", {
+                                "action": "skip_visual_analysis",
+                                "content": "Visual analysis already completed, skipping",
+                                "context": "duplicate_call_prevented"
+                            })
                     else:
                         result = {"error": f"Unknown function: {function_name}"}
                         results.append({
@@ -420,7 +554,7 @@ class VoiceSightAgent:
             "success": True,
             "audio_path": audio_path,
             "transcription": session_context.get("last_transcription", ""),
-            "response_text": response.get("content", ""),
+            "response_text": getattr(self, 'last_response_text', response.get("content", "")),
             "tool_results": results
         }
     
@@ -469,6 +603,25 @@ class VoiceSightAgent:
                 self.logger.log_error("audio_generation_failed", str(e))
             return {"success": False, "error": str(e)}
     
+    def _execute_robot_controller(self, arguments: Dict[str, Any]) -> None:
+        '''
+        Execute Robot Controller actions.
+        '''
+
+        try: 
+            text = arguments.get("text", "")
+
+            # try passing the text to the robot controller.
+            self.robot(text)
+
+            # TODO should this return something? 
+        except Exception as e: 
+            if self.logger:
+                self.logger.log_error("robot_controller_failed", str(e))
+            # TODO should I return something here?
+            
+            
+
     def _execute_visual_analysis(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute visual analysis for images."""
         try:

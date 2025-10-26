@@ -4,7 +4,8 @@ Voice Sight - Audio-based Agentic Pipeline with Gradio Interface.
 
 import os
 import sys
-from typing import Optional, Dict, Any
+import glob
+from typing import Optional
 from datetime import datetime
 
 try:
@@ -39,7 +40,23 @@ class VoiceSightApp:
         self.current_session: Optional[VoiceSightSession] = None
         
         # Initialize agent (will be created with logger in start_session)
-        self.agent = None
+        self.agent: Optional[VoiceSightAgent] = None
+        
+        # Get available prompt systems
+        self.available_prompts = self._get_available_prompts()
+    
+    def _get_available_prompts(self) -> list:
+        """Get list of available prompt systems from the prompts directory."""
+        prompts_dir = os.path.join(os.path.dirname(__file__), "prompts")
+        yaml_files = glob.glob(os.path.join(prompts_dir, "*.yaml"))
+        
+        prompt_options = []
+        for yaml_file in yaml_files:
+            filename = os.path.basename(yaml_file)
+            name = filename.replace(".yaml", "").replace("_", " ").title()
+            prompt_options.append((name, filename))
+        
+        return prompt_options
     
     def build_interface(self):
         """Build the Gradio interface."""
@@ -51,6 +68,14 @@ class VoiceSightApp:
             with gr.Row():
                 with gr.Column(scale=1):
                     gr.Markdown("### 🎤 Audio Input")
+                    
+                    # Prompt system selection
+                    prompt_dropdown = gr.Dropdown(
+                        choices=self.available_prompts,
+                        value=self.available_prompts[0][1] if self.available_prompts else "voice_sight.yaml",
+                        label="Prompt System",
+                        info="Select the AI personality and capabilities"
+                    )
                     
                     # Audio input
                     audio_input = gr.Audio(
@@ -77,11 +102,12 @@ class VoiceSightApp:
                         reset_btn = gr.Button("🔄 Reset Session", variant="secondary")
                 
                 with gr.Column(scale=1):
-                    gr.Markdown("### 🔊 Audio Output")
+                    gr.Markdown("### 🔊 Audio Response")
+                    gr.Markdown("*Play the agent's audio response*")
                     
                     # Audio output
                     audio_output = gr.Audio(
-                        label="Agent Response",
+                        label="Agent Audio Response",
                         type="filepath",
                         interactive=False
                     )
@@ -94,16 +120,7 @@ class VoiceSightApp:
                         value="Ready to start. Click 'Start Session' to begin."
                     )
             
-            # Conversation log
-            with gr.Row():
-                with gr.Column():
-                    gr.Markdown("### 📋 Conversation Log")
-                    conversation_log = gr.Textbox(
-                        label="Conversation History",
-                        interactive=False,
-                        lines=8,
-                        value="No conversation yet."
-                    )
+            # Removed conversation history - just show execution log
             
             # Execution log
             with gr.Row():
@@ -122,33 +139,33 @@ class VoiceSightApp:
                 'image_input': image_input,
                 'audio_output': audio_output,
                 'status_display': status_display,
-                'conversation_log': conversation_log,
-                'execution_log': execution_log
+                'execution_log': execution_log,
+                'prompt_dropdown': prompt_dropdown
             }
             
             # Event handlers
             start_btn.click(
                 fn=self.start_session,
-                inputs=[],
-                outputs=[status_display, conversation_log, execution_log]
+                inputs=[prompt_dropdown],
+                outputs=[status_display, execution_log]
             )
             
             reset_btn.click(
                 fn=self.reset_session,
                 inputs=[],
-                outputs=[audio_output, status_display, conversation_log, execution_log]
+                outputs=[audio_output, status_display, execution_log]
             )
             
             answer_btn.click(
                 fn=self.process_input,
-                inputs=[audio_input, image_input],
-                outputs=[audio_output, status_display, conversation_log, execution_log]
+                inputs=[audio_input, image_input, prompt_dropdown],
+                outputs=[audio_output, status_display, execution_log]
             )
         
         return demo
     
-    def start_session(self):
-        """Start a new Voice Sight session."""
+    def start_session(self, prompt_system: str):
+        """Start a new Voice Sight session with selected prompt system."""
         try:
             # Create new logger
             run_name = f"voice_sight_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}"
@@ -157,8 +174,16 @@ class VoiceSightApp:
             # Create new session
             self.current_session = VoiceSightSession()
             
-            # Create agent with logger
-            self.agent = VoiceSightAgent(api_key=self.api_key, use_thinking=True, logger=self.current_logger)
+            # Create agent with logger and selected prompt system
+            self.agent = VoiceSightAgent(
+                api_key=self.api_key, 
+                use_thinking=True, 
+                logger=self.current_logger,
+                prompt_system=prompt_system
+            )
+            
+            # Clear agent's conversation context for new session
+            self.agent.clear_conversation_context()
             
             # Log session start
             self.current_logger.log_step("session_start", {
@@ -178,20 +203,20 @@ class VoiceSightApp:
                 )
                 
                 status = "✅ Session started! Agent is ready to help."
-                conversation = f"🤖 Agent: {greeting_result['text']}"
+                # Removed chatbot history
                 log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session started (ID: {self.current_session.session_id})\n"
                 log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Greeting generated\n"
                 
-                return status, conversation, log_entry
+                return status, log_entry
             else:
                 error_msg = f"❌ Failed to start session: {greeting_result.get('error', 'Unknown error')}"
                 log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {greeting_result.get('error', 'Unknown error')}\n"
-                return error_msg, "No conversation yet.", log_entry
+                return error_msg, log_entry
                 
         except Exception as e:
             error_msg = f"❌ Error starting session: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return error_msg, "No conversation yet.", log_entry
+            return error_msg, log_entry
     
     def reset_session(self):
         """Reset the current session."""
@@ -209,23 +234,31 @@ class VoiceSightApp:
             self.current_session = None
             
             status = "🔄 Session reset. Click 'Start Session' to begin a new conversation."
-            conversation = "No conversation yet."
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Session reset\n"
             
-            return None, status, conversation, log_entry
+            return None, status, log_entry
             
         except Exception as e:
             error_msg = f"❌ Error resetting session: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return None, error_msg, "No conversation yet.", log_entry
+            return None, error_msg, log_entry
     
-    def process_input(self, audio_input: str, image_input: str):
+    def process_input(self, audio_input: str, image_input: str, prompt_system: str):
         """Process user input (audio and/or image) and generate response."""
         if not audio_input and not image_input:
-            return None, "❌ Please provide audio or image input.", "No conversation yet.", "No input provided."
+            return None, "❌ Please provide audio or image input.", "No input provided."
         
         if not self.current_session:
-            return None, "❌ Please start a session first.", "No conversation yet.", "No active session."
+            return None, "❌ Please start a session first.", "No active session."
+        
+        # Check if prompt system has changed and restart session if needed
+        if hasattr(self, 'current_prompt_system') and self.current_prompt_system != prompt_system:
+            # Restart session with new prompt system
+            self.start_session(prompt_system)
+            return None, "🔄 Prompt system changed. Please restart session.", [], "Prompt system changed."
+        
+        # Store current prompt system
+        self.current_prompt_system: str = prompt_system
         
         try:
             # Determine input type and process accordingly
@@ -242,23 +275,23 @@ class VoiceSightApp:
         except Exception as e:
             error_msg = f"❌ Error processing input: {str(e)}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}\n"
-            return None, error_msg, self._format_conversation_log(), log_entry
+            return None, error_msg, log_entry
     
     def _process_audio_only(self, audio_input: str):
         """Process audio input only."""
         # Process audio with agent
         if not self.agent:
-            return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
+            return None, "❌ Agent not initialized. Please start a session first.", [], "Agent not initialized."
         
         result = self.agent.process_input(audio_input, "", {
-            "conversation_history": self.current_session.get_conversation_context(),
+            "conversation_history": self.current_session.get_conversation_context() if self.current_session else [],
             "last_transcription": ""
         })
         
         if result["success"]:
             # Add user message to session
             transcription = result.get("transcription", "")
-            if transcription:
+            if transcription and self.current_session:
                 self.current_session.add_message(
                     role="user",
                     content=transcription,
@@ -266,40 +299,57 @@ class VoiceSightApp:
                 )
             
             # Add agent response to session
-            if result.get("audio_path"):
+            if self.current_session:
                 response_text = result.get("response_text", "")
-                self.current_session.add_message(
-                    role="assistant",
-                    content=response_text,
-                    metadata={"audio_path": result["audio_path"]}
-                )
+                if response_text:  # Add response text if available
+                    metadata = {}
+                    if result.get("audio_path"):
+                        metadata["audio_path"] = result["audio_path"]
+                    
+                    self.current_session.add_message(
+                        role="assistant",
+                        content=response_text,
+                        metadata=metadata
+                    )
             
-            # Update conversation log
-            conversation = self._format_conversation_log()
+            # Removed chatbot history
             
             # Update status
             status = "✅ Audio processed successfully!"
             
-            # Update execution log
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Audio processed\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Transcription: '{transcription}'\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
+            # Update execution log with actual console outputs
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Audio processed successfully\n"
+            if transcription:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 📝 Transcription: '{transcription}'\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No transcription available\n"
             
+            response_text = result.get("response_text", "")
+            if response_text:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 Agent response: '{response_text}'\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No response text available\n"
             
-            return result.get("audio_path"), status, conversation, log_entry
+            audio_path = result.get("audio_path", "None")
+            if audio_path and audio_path != "None":
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🔊 Audio generated: {audio_path}\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ❌ No audio generated\n"
+            
+            return result.get("audio_path"), status, log_entry
         else:
             error_msg = f"❌ Processing failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, self._format_conversation_log(), log_entry
+            return None, error_msg, log_entry
     
     def _process_image_only(self, image_input: str):
         """Process image input only."""
         # Process image with agent
         if not self.agent:
-            return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
+            return None, "❌ Agent not initialized. Please start a session first.", [], "Agent not initialized."
         
         result = self.agent.process_input("", image_input, {
-            "conversation_history": self.current_session.get_conversation_context(),
+            "conversation_history": self.current_session.get_conversation_context() if self.current_session else [],
             "last_transcription": ""
         })
         
@@ -308,108 +358,120 @@ class VoiceSightApp:
             if self.current_session:
                 self.current_session.add_message(
                     role="user",
-                    content=f"Image analysis request: {image_input}",
+                    content="Image analysis request",
                     metadata={"image_path": image_input}
                 )
             
             # Add agent response to session
-            if result.get("audio_path") and self.current_session:
+            if self.current_session:
                 response_text = result.get("response_text", "")
-                self.current_session.add_message(
-                    role="assistant",
-                    content=response_text,
-                    metadata={"audio_path": result["audio_path"]}
-                )
+                if response_text:  # Add response text if available
+                    metadata = {}
+                    if result.get("audio_path"):
+                        metadata["audio_path"] = result["audio_path"]
+                    
+                    self.current_session.add_message(
+                        role="assistant",
+                        content=response_text,
+                        metadata=metadata
+                    )
             
-            # Update conversation log
-            conversation = self._format_conversation_log()
+            # Removed chatbot history
             
             # Update status
             status = "✅ Image analyzed successfully!"
             
-            # Update execution log
-            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Image processed\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Analysis: {result.get('analysis', '')}\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
+            # Update execution log with actual console outputs
+            log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Image processed successfully\n"
+            response_text = result.get("response_text", "")
+            if response_text:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🤖 Agent response: '{response_text}'\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ No response text available\n"
             
+            audio_path = result.get("audio_path", "None")
+            if audio_path and audio_path != "None":
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] 🔊 Audio generated: {audio_path}\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] ❌ No audio generated\n"
             
-            return result.get("audio_path"), status, conversation, log_entry
+            return result.get("audio_path"), status, log_entry
         else:
             error_msg = f"❌ Image analysis failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, self._format_conversation_log(), log_entry
+            return None, error_msg, log_entry
     
     def _process_audio_and_image(self, audio_input: str, image_input: str):
         """Process both audio and image inputs."""
         # Process both audio and image with agent
         if not self.agent:
-            return None, "❌ Agent not initialized. Please start a session first.", "No conversation yet.", "Agent not initialized."
+            return None, "❌ Agent not initialized. Please start a session first.", [], "Agent not initialized."
         
-        result = self.agent.process_input(audio_input, image_input, {
-            "conversation_history": self.current_session.get_conversation_context(),
+        # Create separate context for agent (not Gradio chatbot)
+        agent_context = {
+            "conversation_history": [],  # Agent maintains its own context
             "last_transcription": ""
-        })
+        }
+        
+        result = self.agent.process_input(audio_input, image_input, agent_context)
         
         if result["success"]:
             # Add user message to session
             transcription = result.get("transcription", "")
-            self.current_session.add_message(
-                role="user",
-                content=f"Audio: {transcription} | Image: {image_input}",
-                metadata={"audio_path": audio_input, "image_path": image_input}
-            )
+            user_content = transcription if transcription else "Image analysis request"
+            if image_input:
+                user_content += " (with image)"
             
-            # Add agent response to session
-            if result.get("audio_path"):
-                response_text = result.get("response_text", "")
+            if self.current_session:
                 self.current_session.add_message(
-                    role="assistant",
-                    content=response_text,
-                    metadata={"audio_path": result["audio_path"]}
+                    role="user",
+                    content=user_content,
+                    metadata={"audio_path": audio_input, "image_path": image_input}
                 )
             
-            # Update conversation log
-            conversation = self._format_conversation_log()
+            # Add agent response to session
+            if self.current_session:
+                response_text = result.get("response_text", "")
+                if response_text:  # Add response text if available
+                    metadata = {}
+                    if result.get("audio_path"):
+                        metadata["audio_path"] = result["audio_path"]
+                    
+                    self.current_session.add_message(
+                        role="assistant",
+                        content=response_text,
+                        metadata=metadata
+                    )
+            
+            # Removed chatbot history
             
             # Update status
             status = "✅ Audio and image processed successfully!"
             
-            # Update execution log
+            # Update execution log with actual console outputs
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Multimodal processing\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio transcription: '{transcription}'\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Image analysis: {result.get('analysis', '')}\n"
-            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Response generated\n"
+            if transcription:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio transcription: '{transcription}'\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] No audio transcription\n"
             
+            response_text = result.get("response_text", "")
+            if response_text:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Agent response: '{response_text}'\n"
+            else:
+                log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] No response text available\n"
             
-            return result.get("audio_path"), status, conversation, log_entry
+            log_entry += f"[{datetime.now().strftime('%H:%M:%S')}] Audio generated: {result.get('audio_path', 'None')}\n"
+            
+            return result.get("audio_path"), status, log_entry
         else:
             error_msg = f"❌ Multimodal processing failed: {result.get('error', 'Unknown error')}"
             log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] Error: {result.get('error', 'Unknown error')}\n"
-            return None, error_msg, self._format_conversation_log(), log_entry
+            return None, error_msg, log_entry
     
     
     
-    def _format_conversation_log(self) -> str:
-        """Format conversation history for display."""
-        if not self.current_session:
-            return "No conversation yet."
-        
-        conversation_history = self.current_session.get_conversation_context()
-        if not conversation_history:
-            return "No conversation yet."
-        
-        formatted_log = []
-        for message in conversation_history:
-            role = message["role"]
-            content = message["content"]
-            # timestamp = message["timestamp"]  # Not used in current implementation
-            
-            if role == "user":
-                formatted_log.append(f"👤 You: {content}")
-            elif role == "assistant":
-                formatted_log.append(f"🤖 Agent: {content}")
-        
-        return "\n".join(formatted_log)
+    # Removed _get_chatbot_history method - no longer needed
     
     def launch(self, **kwargs):
         """Launch the Gradio interface."""

@@ -9,7 +9,15 @@ echo "--------------------------------"
 echo "Check the Gradio interface at http://localhost:7861"
 echo "--------------------------------"
 
-api_key="bai-CeNIcRcYQqe50mhRO9vlnJvdImMRXfBQIkeMKovGGR9fa4Ke"
-export BOSON_API_KEY=$api_key
+# Set the environment variable for BOSON_API_KEY
+USERNAME=$(head -n 1 src/config/secret_keys.txt)
+API_KEY=$(tail -n 1 src/config/secret_keys.txt)
+
+echo $USERNAME
+echo $API_KEY
+
+export BOSON_USERNAME=$USERNAME
+export BOSON_API_KEY=$API_KEY
 export OPENAI_API_KEY=$api_key
+
 bash -c "python src/app.py"
