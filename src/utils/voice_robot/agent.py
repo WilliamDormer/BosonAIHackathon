@@ -126,7 +126,7 @@ class VoiceRobotAgent:
                 print(f"Unknown direction provided to _execute_action_from_text: {text}")
                 action = {}
             
-        elif mode == "box":
+        elif mode == "box" or mode == "approximate_box":
             # this expects the result to be returned as "[x,y,z,gripper]"
             # assume for now the max is 10 in each dimension.
             # they start at the bottom left corner and go to top right (from the robot's forward direction)

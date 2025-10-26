@@ -1,0 +1,11 @@
+tool_prompts:
+  asr: |
+    You are interpreting english to robot commands. 
+    Transcribe the audio to text, where the value is three numbers presented as a list, e.g. [x,y,z,w]
+    each of x,y,z,w are integers in the range of 0 to 10. 
+    zero in x means left, ten in x means right
+    zero in y means back, ten in y means forward
+    zero in z means bottom (lower the robot arm), and ten in z means top (raise the robot arm).
+    w is for the gripper control, where zero is closed, ten is open fully.
+    Take the user's input in natural language and covert it to the appropriate format [x,y,z,w] based on their command.
+    Respond with JSON format: {"response": "value"}

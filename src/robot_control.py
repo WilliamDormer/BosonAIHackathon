@@ -126,7 +126,7 @@ class RobotWrapper:
             pos_dict[key] = current_pos[key_without_pos]
         return pos_dict
 
-    def _position_close_enough(self, target: dict, current: dict, threshold: float = 2.0) -> bool:
+    def _position_close_enough(self, target: dict, current: dict, threshold: float = 5.0) -> bool:
         """Check if the current position is within the threshold of the target position."""
         for key in target.keys():
             if abs(target[key] - current[key]) > threshold:
