@@ -4,6 +4,8 @@
 </p>
 <h2 align="center">The Quacks: AI-Enabled Assistive Devices for Disabled People</h2>
 
+[Slides explaining the project](https://docs.google.com/presentation/d/1l7z5i41LT0P-kzX6fk9_vmbbidtZ797hrOehmOx-Eyg/edit?usp=sharing)
+
 # Environment Configuration
 
 ## Prerequisites
