@@ -40,7 +40,7 @@ class VoiceSightAgent:
         self.api_key = api_key or os.getenv("BOSON_API_KEY")
         self.logger = logger
 
-        self.use_robot = True #TODO add an argument for this.
+        self.use_robot = False #TODO add an argument for this.
 
         if self.use_robot:
             # initialize the RobotWrapper (create connection to the device)

@@ -40,6 +40,10 @@ class RobotKinematics:
                 "Please install the optional dependencies of `kinematics` in the package."
             ) from e
 
+        import os
+        print("os.cwd(): ", os.getcwd())
+        print("does the path exist: ", os.path.exists("/Users/williamdormer/Developer/hackathon-msac-public/assets/base_motor_holder_so101_v1.stl"))
+
         self.robot = placo.RobotWrapper(urdf_path)
         self.solver = placo.KinematicsSolver(self.robot)
         self.solver.mask_fbase(True)  # Fix the base

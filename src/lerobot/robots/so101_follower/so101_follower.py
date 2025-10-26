@@ -18,6 +18,7 @@ import logging
 import time
 from functools import cached_property
 from typing import Any
+from lerobot.model.kinematics import RobotKinematics
 
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.motors import Motor, MotorCalibration, MotorNormMode
@@ -25,6 +26,26 @@ from lerobot.motors.feetech import (
     FeetechMotorsBus,
     OperatingMode,
 )
+
+from lerobot.processor.converters import (
+    observation_to_transition,
+    robot_action_observation_to_transition,
+    transition_to_observation,
+    transition_to_robot_action,
+)
+
+from lerobot.robots.so100_follower.robot_kinematic_processor import (
+    ForwardKinematicsJointsToEE,
+    InverseKinematicsEEToJoints,
+)
+
+from lerobot.processor import (
+    RobotAction,
+    RobotObservation,
+    RobotProcessorPipeline,
+    make_default_teleop_action_processor,
+)
+
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from ..robot import Robot
@@ -58,6 +79,27 @@ class SO101Follower(Robot):
             },
             calibration=self.calibration,
         )
+
+        # TODO add support for the inverse kinematics: https://github.com/huggingface/lerobot/blob/main/examples/so100_to_so100_EE/evaluate.py
+        self.kinematics_solver = RobotKinematics(
+            urdf_path = "/Users/williamdormer/Developer/hackathon-msac-public/src/lerobot/robots/so101_follower/so101_new_calib.urdf",
+            target_frame_name = "gripper_frame_link",
+            joint_names = list(self.bus.motors.keys()),
+        )
+
+        # Build a pipeline to convert EE action to joints action.
+        self.robot_ee_to_joints_processor = RobotProcessorPipeline[tuple[RobotAction, RobotObservation], RobotAction](
+            steps = [
+                InverseKinematicsEEToJoints(
+                    kinematics = self.kinematics_solver,
+                    motor_names = list(self.bus.motors.keys()),
+                    initial_guess_current_joints = True,
+                ),
+            ],
+            to_transition= robot_action_observation_to_transition,
+            to_output = transition_to_robot_action,
+        )
+
         self.cameras = make_cameras_from_configs(config.cameras)
 
     @property
@@ -189,8 +231,16 @@ class SO101Follower(Robot):
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
 
         return obs_dict
+    
+    def compute_joint_positions_from_ee(self, ee_action: dict[str, float]) -> dict[str, float]:
+        """Compute joint positions from end-effector target using inverse kinematics."""
+        print("action before ee to joints: ", ee_action)
+        observation = self.get_observation()
+        joint_action = self.robot_ee_to_joints_processor((ee_action, observation))
+        print("action after ee to joints: ", joint_action)
+        return joint_action
 
-    def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
+    def send_action(self, action: dict[str, Any], type="end_effector") -> dict[str, Any]:
         """Command arm to move to a target joint configuration.
 
         The relative action magnitude may be clipped depending on the configuration parameter
@@ -223,11 +273,21 @@ class SO101Follower(Robot):
         }
         '''
 
+        # if type == "joints":
+        #     pass
+        # elif type == "end_effector":
+        #     # need to convert from ee space to joint space.
+            
+        #     raise Exception()
+        # else:
+        #     raise ValueError(f"Unknown type provided to send_action: {type}")
+            
+
         # for now, we let delta_z control shoulder_lift
         # delta_x control shoulder_pan
         # delta_y control wrist_roll
         present_pos = self.bus.sync_read("Present_Position")
-        print("present_pos: ", present_pos)
+        # print("present_pos: ", present_pos)
 
         action_scale = 5.0
 
@@ -247,7 +307,7 @@ class SO101Follower(Robot):
             goal_pos = ensure_safe_goal_position(goal_present_pos, self.config.max_relative_target)
 
         # Send goal position to the arm
-        print("goal_pos: ", goal_pos)
+        # print("goal_pos: ", goal_pos)
         self.bus.sync_write("Goal_Position", goal_pos)
         return {f"{motor}.pos": val for motor, val in goal_pos.items()}
 

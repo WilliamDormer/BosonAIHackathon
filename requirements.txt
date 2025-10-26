@@ -9,6 +9,7 @@ websockets>=15.0.1
 
 # Additional requirement for servo controller
 feetech-servo-sdk==1.0.0
+placo
 
 # requirements for lerobot (MAC)
 # NOTE you also need to install lerobot itself in editable mode by cd into lerobot and do `pip install -e .`

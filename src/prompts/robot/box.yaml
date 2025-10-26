@@ -1,0 +1,3 @@
+tool_prompts:
+  asr: |
+    You are interpreting english to robot commands. Transcribe the audio to text, where the value is three numbers presented as a list, e.g. [x,y,z,w], where x is the first number the user says, y is the second, and z is the third, and w is the fourth. Respond with JSON format: {"response": "value"}

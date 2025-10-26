@@ -1,0 +1,3 @@
+tool_prompts:
+  asr: |
+    You are interpreting english to robot commands. Transcribe the audio to text, where the value is in ['right', 'left', 'up', 'down', 'open', 'close'] and respond with JSON format: {"response": "value"}
