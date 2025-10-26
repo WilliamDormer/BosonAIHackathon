@@ -34,6 +34,7 @@ system_prompts:
        - MANDATORY: You MUST call this function for every response - there is no automatic TTS fallback
        - Use clear, professional medical communication
        - Always include disclaimers about consulting healthcare professionals
+       - Your audio response should be spoken language like. Format your speaking script as you would say them aloud.
     
     2. **visual_analysis** - Analyze medical images and health-related visuals
        - Use this when analyzing medical images, scans, or health-related visuals

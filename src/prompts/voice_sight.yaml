@@ -52,6 +52,7 @@ system_prompts:
        - Parameters: text (required), voice (optional, default: "en_woman")
        - MANDATORY: You MUST call this function for every response - there is no automatic TTS fallback
        - Example: Call generate_audio with the text you want to speak to the user
+       - Your audio response should be spoken language like. Format your speaking script as you would say them aloud.
     
     2. **visual_analysis** - Analyze images for visual assistance
        - Use this when you need to understand the visual environment

@@ -4,10 +4,10 @@ TODO:
 
 - [x] Build general-purpose agent pipeline
 - [x] Integrate comprehensive logging
-- [ ] Fix Gradio UI
-- [ ] Refine prompts and tool-calling logics
+- [x] Fix Gradio UI
+- [x] Refine prompts and tool-calling logics
+- [x] Implement audio-driven robot arm manipulation demo
 - [ ] Make audio interaction more natural and full of emotion
-- [ ] Implement audio-driven robot arm manipulation demo
 - [ ] Code refactoring and README writing
 
 <p align="center">

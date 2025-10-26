@@ -99,13 +99,13 @@ class VoiceSightAgent:
             ),
             create_tool_call_schema(
                 tool_name="visual_analysis",
-                description="Analyze the uploaded image for the user - use this when you need to provide visual assistance",
+                description="Analyze the uploaded image for the user - use this when you need to provide visual assistance or get visual cues from the image",
                 parameters={
                     "type": "object",
                     "properties": {
                         "question": {
                             "type": "string",
-                            "description": "Specific question about the image analysis",
+                            "description": "Specific question about the image analysis/perception",
                             "default": "Analyze this image for a visually-impaired person, focusing on safety and navigation."
                         }
                     },
@@ -338,7 +338,7 @@ class VoiceSightAgent:
                 temperature = 0.7 if attempt == 0 else 0.9  # Start with 0.7, increase to 0.9 on retries
                 
                 if self.logger and attempt > 0:
-                    self.logger.log_result("🤖 agent", {
+                    self.logger.log_result("🤖 Agent: Retrying generation with different temperature.", {
                         "action": "llm_retry",
                         "content": f"Retrying LLM call (attempt {attempt + 1}/{max_retries})",
                         "temperature": temperature
@@ -406,7 +406,7 @@ class VoiceSightAgent:
             
             # Log agent response
             if self.logger:
-                logger_text = f"🤖 agent\nResponse: {response_text}\nTool calls: {len(formatted_tool_calls)}"
+                logger_text = f"🤖 Agent: \nResponse: {response_text}\nTool calls: {len(formatted_tool_calls)}"
                 logger_payload = {
                     "action": "llm_response",
                     "content": response_text,
